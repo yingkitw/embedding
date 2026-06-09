@@ -941,9 +941,88 @@ mod tests {
     fn test_load_text_data() {
         let text = "Hello world! This is a test.";
         let sentences = load_text_data(text);
-        
+
         assert_eq!(sentences.len(), 2);
         assert_eq!(sentences[0], vec!["hello", "world"]);
         assert_eq!(sentences[1], vec!["this", "is", "a", "test"]);
+    }
+
+    fn make_test_data() -> TrainingData {
+        let text = "the cat sat on the mat. the dog sat on the log. the cat chased the dog.";
+        let sentences = load_text_data(text);
+        let (vocab, reverse_vocab) = build_vocab(&sentences);
+        TrainingData { sentences, vocab, reverse_vocab }
+    }
+
+    fn test_config(model_type: ModelType) -> TrainingConfig {
+        TrainingConfig {
+            embedding_dim: 8,
+            learning_rate: 0.1,
+            epochs: 2,
+            batch_size: 4,
+            context_window: 1,
+            negative_samples: 2,
+            model_type,
+            lr_schedule: LearningRateSchedule::Constant,
+            early_stopping: None,
+            l2_regularization: None,
+            dropout_rate: None,
+        }
+    }
+
+    #[test]
+    fn test_train_skipgram() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+
+        assert!(model.train(&data).is_ok());
+
+        // Embeddings should exist for known words
+        assert!(model.get_embedding("cat", &data).is_some());
+        assert!(model.get_embedding("dog", &data).is_some());
+        assert!(model.get_embedding("the", &data).is_some());
+    }
+
+    #[test]
+    fn test_train_cbow() {
+        let data = make_test_data();
+        let config = test_config(ModelType::Cbow);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+
+        assert!(model.train(&data).is_ok());
+
+        assert!(model.get_embedding("cat", &data).is_some());
+        assert!(model.get_embedding("dog", &data).is_some());
+    }
+
+    #[test]
+    fn test_save_embeddings() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        model.train(&data).unwrap();
+
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("test_embeddings_save.txt");
+        let path_str = path.to_str().unwrap();
+
+        assert!(model.save_embeddings(path_str, &data).is_ok());
+        let contents = std::fs::read_to_string(path_str).unwrap();
+        assert!(contents.contains("cat"));
+        assert!(contents.contains("dog"));
+
+        std::fs::remove_file(path_str).ok();
+    }
+
+    #[test]
+    fn test_similarity_unknown_word() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        model.train(&data).unwrap();
+
+        assert!(model.similarity("cat", "nonexistent", &data).is_none());
+        assert!(model.similarity("nonexistent", "dog", &data).is_none());
     }
 }

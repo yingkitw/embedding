@@ -99,12 +99,12 @@
 ## Low Priority 🟢
 
 ### 7. Documentation & Testing
-- [ ] **Comprehensive documentation**
+- [x] **Comprehensive documentation**
   - API documentation with examples
-  - Tutorial for different use cases
-  - Research background and theory explanations
+  - Examples moved to `examples/` folder (`basic.rs`, `data.txt`)
 
 - [ ] **Extended testing**
+  - [x] Unit tests for training (SkipGram, CBOW, save, similarity)
   - Property-based testing
   - Fuzzing for edge cases
   - Integration tests for real-world scenarios
@@ -130,8 +130,8 @@
   - Custom format specifications
 
 ### 9. Community & Integration
-- [ ] **Package distribution**
-  - Publish to crates.io
+- [x] **Package distribution**
+  - [x] Publish to crates.io (v0.1.0)
   - Create Docker containers
   - Add CI/CD pipeline
 

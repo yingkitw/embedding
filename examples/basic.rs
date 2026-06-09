@@ -1,11 +1,15 @@
 use embedding::*;
 
 fn main() -> Result<(), String> {
-    // Sample training data
-    let text = "the quick brown fox jumps over the lazy dog. the fox is quick and the dog is lazy.";
-    
+    // Sample training data (or load from file)
+    let text = if let Ok(data) = std::fs::read_to_string("examples/data.txt") {
+        data
+    } else {
+        "the quick brown fox jumps over the lazy dog. the fox is quick and the dog is lazy.".to_string()
+    };
+
     // Load and prepare data
-    let sentences = load_text_data(text);
+    let sentences = load_text_data(&text);
     println!("Loaded {} sentences", sentences.len());
     
     let (vocab, reverse_vocab) = build_vocab(&sentences);

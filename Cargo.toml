@@ -1,6 +1,6 @@
 [package]
 name = "embedding"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "A Rust library and CLI for training embeddings from scratch"
 authors = ["Ying Kit WONG"]
@@ -18,10 +18,6 @@ path = "src/lib.rs"
 [[bin]]
 name = "embedding"
 path = "src/main.rs"
-
-[[bin]]
-name = "demo"
-path = "demo.rs"
 
 [dependencies]
 ndarray = "0.15"
