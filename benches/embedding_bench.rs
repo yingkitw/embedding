@@ -25,6 +25,11 @@ fn bench_skipgram_training(c: &mut Criterion) {
         context_window: 2,
         negative_samples: 5,
         model_type: ModelType::SkipGram,
+        lr_schedule: LearningRateSchedule::Constant,
+        early_stopping: None,
+        l2_regularization: None,
+        dropout_rate: None,
+        gradient_clip: None,
     };
     
     c.bench_function("skipgram_training", |b| {
@@ -58,6 +63,11 @@ fn bench_cbow_training(c: &mut Criterion) {
         context_window: 2,
         negative_samples: 5,
         model_type: ModelType::Cbow,
+        lr_schedule: LearningRateSchedule::Constant,
+        early_stopping: None,
+        l2_regularization: None,
+        dropout_rate: None,
+        gradient_clip: None,
     };
     
     c.bench_function("cbow_training", |b| {
@@ -91,6 +101,11 @@ fn bench_similarity_calculation(c: &mut Criterion) {
         context_window: 2,
         negative_samples: 5,
         model_type: ModelType::SkipGram,
+        lr_schedule: LearningRateSchedule::Constant,
+        early_stopping: None,
+        l2_regularization: None,
+        dropout_rate: None,
+        gradient_clip: None,
     };
     
     let mut model = EmbeddingModel::new(config, training_data.vocab.len());
@@ -126,6 +141,11 @@ fn bench_embedding_retrieval(c: &mut Criterion) {
         context_window: 2,
         negative_samples: 5,
         model_type: ModelType::SkipGram,
+        lr_schedule: LearningRateSchedule::Constant,
+        early_stopping: None,
+        l2_regularization: None,
+        dropout_rate: None,
+        gradient_clip: None,
     };
     
     let mut model = EmbeddingModel::new(config, training_data.vocab.len());

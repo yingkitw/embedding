@@ -1,7 +1,6 @@
 use clap::{Parser, Subcommand};
 use embedding::*;
 use std::fs;
-use std::path::Path;
 use tracing::{info, error};
 
 #[derive(Parser)]
@@ -187,6 +186,7 @@ fn main() {
                     early_stopping: None,
                     l2_regularization: None,
                     dropout_rate: None,
+                    gradient_clip: None,
                 }
             };
             
@@ -308,7 +308,7 @@ fn main() {
                     let export_data: Vec<(String, Vec<f32>)> = training_data.reverse_vocab
                         .iter()
                         .enumerate()
-                        .map(|(i, word)| {
+                        .map(|(_i, word)| {
                             let embedding = model.get_embedding(word, &training_data)
                                 .unwrap_or_else(|| {
                                     error!("Failed to get embedding for word: {}", word);

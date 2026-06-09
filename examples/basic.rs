@@ -40,6 +40,7 @@ fn main() -> Result<(), String> {
         early_stopping: None,
         l2_regularization: None,
         dropout_rate: None,
+        gradient_clip: None,
     };
     
     println!("Training with config: {:?}", config);

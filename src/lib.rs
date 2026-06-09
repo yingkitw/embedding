@@ -19,6 +19,7 @@ pub struct TrainingConfig {
     pub early_stopping: Option<EarlyStoppingConfig>,
     pub l2_regularization: Option<f64>,
     pub dropout_rate: Option<f32>,
+    pub gradient_clip: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,7 +139,6 @@ impl DataLoader {
 mod embeddings_serializer {
     use super::*;
     use serde::{Serialize, Deserialize};
-    use serde_json::Value;
 
     pub fn serialize<S>(embeddings: &Array2<f32>, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -199,58 +199,81 @@ impl EmbeddingModel {
         let mut rng = rand::thread_rng();
         let mut best_loss = f32::MAX;
         let mut patience_counter = 0;
-        
+
         for epoch in 0..self.config.epochs {
             info!("Epoch {}/{}", epoch + 1, self.config.epochs);
-            
+
             let current_lr = self.get_learning_rate(epoch, self.config.epochs);
             info!("Current learning rate: {:.6}", current_lr);
-            
+
             let mut total_loss = 0.0;
             let mut num_updates = 0;
-            
+            let mut batch_count = 0;
+            let mut batch_loss = 0.0;
+            let mut num_batches = 0;
+            let mut accum = self.new_gradient_accumulator();
+
             for (_sentence_idx, sentence) in data.sentences.iter().enumerate() {
                 for (target_idx, target_word) in sentence.iter().enumerate() {
                     if let Some(&target_id) = data.vocab.get(target_word) {
                         let start = target_idx.saturating_sub(self.config.context_window);
                         let end = std::cmp::min(target_idx + self.config.context_window + 1, sentence.len());
-                        
+
                         // Get negative samples
                         let negative_samples = get_negative_samples(
-                            self.vocab_size, 
-                            self.config.negative_samples, 
-                            target_id, 
+                            self.vocab_size,
+                            self.config.negative_samples,
+                            target_id,
                             &mut rng
                         );
-                        
+
                         for context_idx in start..end {
                             if context_idx != target_idx {
                                 if let Some(&context_id) = data.vocab.get(&sentence[context_idx]) {
-                                    let loss = self.update_skipgram_with_lr(target_id, context_id, &negative_samples, current_lr);
+                                    let loss = self.compute_skipgram_gradients(
+                                        target_id, context_id, &negative_samples, current_lr, &mut accum
+                                    );
                                     total_loss += loss;
+                                    batch_loss += loss;
                                     num_updates += 1;
+                                    batch_count += 1;
+
+                                    if batch_count >= self.config.batch_size {
+                                        self.apply_gradient_batch(&mut accum, batch_count);
+                                        num_batches += 1;
+                                        if num_batches % 10 == 0 {
+                                            info!("  Batch {} avg loss: {:.4}", num_batches, batch_loss / batch_count as f32);
+                                        }
+                                        batch_loss = 0.0;
+                                        batch_count = 0;
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-            
-            let avg_loss = total_loss / num_updates as f32;
+
+            // Apply any remaining gradients
+            if batch_count > 0 {
+                self.apply_gradient_batch(&mut accum, batch_count);
+            }
+
+            let avg_loss = total_loss / num_updates.max(1) as f32;
             info!("Epoch {} completed. Average loss: {:.4}", epoch + 1, avg_loss);
-            
+
             // Early stopping check
             if self.should_early_stop(epoch + 1, avg_loss, best_loss, &mut patience_counter) {
                 info!("Early stopping triggered at epoch {}", epoch + 1);
                 break;
             }
-            
+
             if avg_loss < best_loss {
                 best_loss = avg_loss;
                 patience_counter = 0;
             }
         }
-        
+
         Ok(())
     }
 
@@ -258,22 +281,26 @@ impl EmbeddingModel {
         let mut rng = rand::thread_rng();
         let mut best_loss = f32::MAX;
         let mut patience_counter = 0;
-        
+
         for epoch in 0..self.config.epochs {
             info!("Epoch {}/{}", epoch + 1, self.config.epochs);
-            
+
             let current_lr = self.get_learning_rate(epoch, self.config.epochs);
             info!("Current learning rate: {:.6}", current_lr);
-            
+
             let mut total_loss = 0.0;
             let mut num_updates = 0;
-            
+            let mut batch_count = 0;
+            let mut batch_loss = 0.0;
+            let mut num_batches = 0;
+            let mut accum = self.new_gradient_accumulator();
+
             for (_sentence_idx, sentence) in data.sentences.iter().enumerate() {
                 for (target_idx, target_word) in sentence.iter().enumerate() {
                     if let Some(&target_id) = data.vocab.get(target_word) {
                         let start = target_idx.saturating_sub(self.config.context_window);
                         let end = std::cmp::min(target_idx + self.config.context_window + 1, sentence.len());
-                        
+
                         let mut context_ids = Vec::new();
                         for context_idx in start..end {
                             if context_idx != target_idx {
@@ -282,39 +309,58 @@ impl EmbeddingModel {
                                 }
                             }
                         }
-                        
+
                         if !context_ids.is_empty() {
                             // Get negative samples
                             let negative_samples = get_negative_samples(
-                                self.vocab_size, 
-                                self.config.negative_samples, 
-                                target_id, 
+                                self.vocab_size,
+                                self.config.negative_samples,
+                                target_id,
                                 &mut rng
                             );
-                            
-                            let loss = self.update_cbow_with_lr(target_id, &context_ids, &negative_samples, current_lr);
+
+                            let loss = self.compute_cbow_gradients(
+                                target_id, &context_ids, &negative_samples, current_lr, &mut accum
+                            );
                             total_loss += loss;
+                            batch_loss += loss;
                             num_updates += 1;
+                            batch_count += 1;
+
+                            if batch_count >= self.config.batch_size {
+                                self.apply_gradient_batch(&mut accum, batch_count);
+                                num_batches += 1;
+                                if num_batches % 10 == 0 {
+                                    info!("  Batch {} avg loss: {:.4}", num_batches, batch_loss / batch_count as f32);
+                                }
+                                batch_loss = 0.0;
+                                batch_count = 0;
+                            }
                         }
                     }
                 }
             }
-            
-            let avg_loss = total_loss / num_updates as f32;
+
+            // Apply any remaining gradients
+            if batch_count > 0 {
+                self.apply_gradient_batch(&mut accum, batch_count);
+            }
+
+            let avg_loss = total_loss / num_updates.max(1) as f32;
             info!("Epoch {} completed. Average loss: {:.4}", epoch + 1, avg_loss);
-            
+
             // Early stopping check
             if self.should_early_stop(epoch + 1, avg_loss, best_loss, &mut patience_counter) {
                 info!("Early stopping triggered at epoch {}", epoch + 1);
                 break;
             }
-            
+
             if avg_loss < best_loss {
                 best_loss = avg_loss;
                 patience_counter = 0;
             }
         }
-        
+
         Ok(())
     }
 
@@ -373,74 +419,75 @@ impl EmbeddingModel {
         }
     }
 
-    fn update_skipgram(&mut self, target_id: usize, context_id: usize, negative_samples: &[usize]) {
-        self.update_skipgram_with_lr(target_id, context_id, negative_samples, self.config.learning_rate as f32);
+    fn new_gradient_accumulator(&self) -> HashMap<usize, Vec<f32>> {
+        HashMap::new()
     }
-    
-    fn update_skipgram_with_lr(&mut self, target_id: usize, context_id: usize, negative_samples: &[usize], learning_rate: f32) -> f32 {
-        // Clone embeddings to avoid borrow checker issues
+
+    fn accumulate_gradient(&self, accum: &mut HashMap<usize, Vec<f32>>, word_id: usize, grad: f32, dim_idx: usize) {
+        accum.entry(word_id)
+            .or_insert_with(|| vec![0.0; self.config.embedding_dim])[dim_idx] += grad;
+    }
+
+    fn apply_gradient_batch(&mut self, accum: &mut HashMap<usize, Vec<f32>>, batch_size: usize) {
+        let scale = 1.0 / batch_size.max(1) as f32;
+        for (&word_id, grads) in accum.iter() {
+            for (i, &grad) in grads.iter().enumerate() {
+                self.embeddings[[word_id, i]] -= self.clip_gradient(grad * scale);
+            }
+        }
+        accum.clear();
+    }
+
+    fn compute_skipgram_gradients(
+        &self,
+        target_id: usize,
+        context_id: usize,
+        negative_samples: &[usize],
+        learning_rate: f32,
+        accum: &mut HashMap<usize, Vec<f32>>,
+    ) -> f32 {
         let target_embedding: Vec<f32> = self.embeddings.row(target_id).to_vec();
         let context_embedding: Vec<f32> = self.embeddings.row(context_id).to_vec();
 
-        // Positive sample loss
         let dot_product: f32 = target_embedding.iter().zip(context_embedding.iter()).map(|(&a, &b)| a * b).sum();
         let prob_positive = sigmoid(dot_product);
-
-        // Update positive sample
         let grad_positive = prob_positive - 1.0;
+
         for i in 0..self.config.embedding_dim {
             let mut grad = learning_rate * grad_positive * context_embedding[i];
-            
-            // Apply L2 regularization
             if let Some(l2_reg) = self.config.l2_regularization {
                 grad += learning_rate * l2_reg as f32 * target_embedding[i];
             }
-            
-            self.embeddings[[target_id, i]] -= grad;
-            
+            self.accumulate_gradient(accum, target_id, grad, i);
+
             let mut grad_context = learning_rate * grad_positive * target_embedding[i];
             if let Some(l2_reg) = self.config.l2_regularization {
                 grad_context += learning_rate * l2_reg as f32 * context_embedding[i];
             }
-            
-            self.embeddings[[context_id, i]] -= grad_context;
+            self.accumulate_gradient(accum, context_id, grad_context, i);
         }
-        
-        // Negative samples
+
         for &neg_id in negative_samples {
             let neg_embedding: Vec<f32> = self.embeddings.row(neg_id).to_vec();
             let dot_product_neg: f32 = target_embedding.iter().zip(neg_embedding.iter()).map(|(&a, &b)| a * b).sum();
             let prob_negative = sigmoid(dot_product_neg);
-            
-            // Update negative sample
             let grad_negative = prob_negative;
+
             for i in 0..self.config.embedding_dim {
                 let mut grad = learning_rate * grad_negative * neg_embedding[i];
                 if let Some(l2_reg) = self.config.l2_regularization {
                     grad += learning_rate * l2_reg as f32 * target_embedding[i];
                 }
-                
-                self.embeddings[[target_id, i]] -= grad;
-                
+                self.accumulate_gradient(accum, target_id, grad, i);
+
                 let mut grad_neg = learning_rate * grad_negative * target_embedding[i];
                 if let Some(l2_reg) = self.config.l2_regularization {
                     grad_neg += learning_rate * l2_reg as f32 * neg_embedding[i];
                 }
-                
-                self.embeddings[[neg_id, i]] -= grad_neg;
-            }
-        }
-        
-        // Apply dropout if enabled
-        if let Some(dropout_rate) = self.config.dropout_rate {
-            self.apply_dropout(target_id, dropout_rate);
-            self.apply_dropout(context_id, dropout_rate);
-            for &neg_id in negative_samples {
-                self.apply_dropout(neg_id, dropout_rate);
+                self.accumulate_gradient(accum, neg_id, grad_neg, i);
             }
         }
 
-        // Compute loss: -log(sigmoid(positive)) - sum(log(sigmoid(-negative)))
         let mut loss = -prob_positive.ln();
         for &neg_id in negative_samples {
             let neg_embedding: Vec<f32> = self.embeddings.row(neg_id).to_vec();
@@ -450,15 +497,17 @@ impl EmbeddingModel {
         loss
     }
 
-    fn update_cbow(&mut self, target_id: usize, context_ids: &[usize], negative_samples: &[usize]) {
-        let _ = self.update_cbow_with_lr(target_id, context_ids, negative_samples, self.config.learning_rate as f32);
-    }
-    
-    fn update_cbow_with_lr(&mut self, target_id: usize, context_ids: &[usize], negative_samples: &[usize], learning_rate: f32) -> f32 {
-        // Calculate context vector (mean pooling)
+    fn compute_cbow_gradients(
+        &self,
+        target_id: usize,
+        context_ids: &[usize],
+        negative_samples: &[usize],
+        learning_rate: f32,
+        accum: &mut HashMap<usize, Vec<f32>>,
+    ) -> f32 {
         let mut context_vector = Array::zeros(self.config.embedding_dim);
         let mut context_embeddings: Vec<Vec<f32>> = Vec::new();
-        
+
         for &context_id in context_ids {
             let context_embedding: Vec<f32> = self.embeddings.row(context_id).to_vec();
             context_embeddings.push(context_embedding.clone());
@@ -466,15 +515,13 @@ impl EmbeddingModel {
             context_vector = context_vector + &context_arr;
         }
         context_vector = context_vector / context_ids.len() as f32;
-        
-        // Positive sample
+
         let target_embedding: Vec<f32> = self.embeddings.row(target_id).to_vec();
         let target_arr = Array::from_shape_vec((self.config.embedding_dim,), target_embedding.clone()).unwrap();
         let dot_product = context_vector.dot(&target_arr);
         let prob_positive = sigmoid(dot_product);
         let grad_positive = prob_positive - 1.0;
-        
-        // Update positive sample
+
         for (context_idx, &context_id) in context_ids.iter().enumerate() {
             let _context_embedding = &context_embeddings[context_idx];
             for i in 0..self.config.embedding_dim {
@@ -482,62 +529,48 @@ impl EmbeddingModel {
                 if let Some(l2_reg) = self.config.l2_regularization {
                     grad += learning_rate * l2_reg as f32 * self.embeddings[[context_id, i]];
                 }
-                self.embeddings[[context_id, i]] -= grad;
+                self.accumulate_gradient(accum, context_id, grad, i);
             }
         }
-        
+
         for i in 0..self.config.embedding_dim {
             let mut grad = learning_rate * grad_positive * context_vector[i];
             if let Some(l2_reg) = self.config.l2_regularization {
                 grad += learning_rate * l2_reg as f32 * target_embedding[i];
             }
-            self.embeddings[[target_id, i]] -= grad;
+            self.accumulate_gradient(accum, target_id, grad, i);
         }
-        
-        // Negative samples
+
         for &neg_id in negative_samples {
             let neg_embedding: Vec<f32> = self.embeddings.row(neg_id).to_vec();
             let neg_arr = Array::from_shape_vec((self.config.embedding_dim,), neg_embedding.clone()).unwrap();
             let dot_product_neg = context_vector.dot(&neg_arr);
             let prob_negative = sigmoid(dot_product_neg);
             let grad_negative = prob_negative;
-            
-            // Update negative sample
+
             for &context_id in context_ids {
                 for i in 0..self.config.embedding_dim {
                     let mut grad = learning_rate * grad_negative * neg_embedding[i];
                     if let Some(l2_reg) = self.config.l2_regularization {
                         grad += learning_rate * l2_reg as f32 * self.embeddings[[context_id, i]];
                     }
-                    self.embeddings[[context_id, i]] -= grad;
+                    self.accumulate_gradient(accum, context_id, grad, i);
                 }
             }
-            
+
             for i in 0..self.config.embedding_dim {
                 let mut grad = learning_rate * grad_negative * context_vector[i];
                 if let Some(l2_reg) = self.config.l2_regularization {
                     grad += learning_rate * l2_reg as f32 * neg_embedding[i];
                 }
-                self.embeddings[[neg_id, i]] -= grad;
-            }
-        }
-        
-        // Apply dropout if enabled
-        if let Some(dropout_rate) = self.config.dropout_rate {
-            for &context_id in context_ids {
-                self.apply_dropout(context_id, dropout_rate);
-            }
-            self.apply_dropout(target_id, dropout_rate);
-            for &neg_id in negative_samples {
-                self.apply_dropout(neg_id, dropout_rate);
+                self.accumulate_gradient(accum, neg_id, grad, i);
             }
         }
 
-        // Compute loss: -log(sigmoid(positive)) - sum(log(sigmoid(-negative)))
         let mut loss = -prob_positive.ln();
         for &neg_id in negative_samples {
             let neg_embedding: Vec<f32> = self.embeddings.row(neg_id).to_vec();
-            let neg_arr = Array::from_shape_vec((self.config.embedding_dim,), neg_embedding).unwrap();
+            let neg_arr = Array::from_shape_vec((self.config.embedding_dim,), neg_embedding.clone()).unwrap();
             let dot_product_neg = context_vector.dot(&neg_arr);
             loss += -sigmoid(-dot_product_neg).ln();
         }
@@ -837,14 +870,11 @@ impl EmbeddingModel {
         }
     }
     
-    fn apply_dropout(&mut self, word_id: usize, dropout_rate: f32) {
-        let mut rng = rand::thread_rng();
-        let dist = Uniform::new(0.0, 1.0);
-        
-        for i in 0..self.config.embedding_dim {
-            if rng.sample(dist) < dropout_rate {
-                self.embeddings[[word_id, i]] = 0.0;
-            }
+    fn clip_gradient(&self, grad: f32) -> f32 {
+        if let Some(max_norm) = self.config.gradient_clip {
+            grad.clamp(-max_norm, max_norm)
+        } else {
+            grad
         }
     }
 }
@@ -1113,6 +1143,7 @@ mod tests {
             early_stopping: None,
             l2_regularization: None,
             dropout_rate: None,
+            gradient_clip: None,
         }
     }
 
@@ -1265,5 +1296,37 @@ mod tests {
         let (train, val) = model.split_data(&sentences, 0.7);
         assert_eq!(train.len(), 7);
         assert_eq!(val.len(), 3);
+    }
+
+    #[test]
+    fn test_gradient_clipping() {
+        let data = make_test_data();
+        let mut config = test_config(ModelType::SkipGram);
+        config.gradient_clip = Some(0.001);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+
+        // Training should still succeed with aggressive clipping
+        assert!(model.train(&data).is_ok());
+        assert!(model.get_embedding("cat", &data).is_some());
+    }
+
+    #[test]
+    fn test_mini_batch_processing() {
+        let data = make_test_data();
+        // Test with batch_size = 1 (equivalent to old behavior)
+        let mut config1 = test_config(ModelType::SkipGram);
+        config1.batch_size = 1;
+        let mut model1 = EmbeddingModel::new(config1, data.vocab.len());
+        assert!(model1.train(&data).is_ok());
+
+        // Test with batch_size = 8 (actual mini-batch)
+        let mut config8 = test_config(ModelType::SkipGram);
+        config8.batch_size = 8;
+        let mut model8 = EmbeddingModel::new(config8, data.vocab.len());
+        assert!(model8.train(&data).is_ok());
+
+        // Both should produce embeddings for known words
+        assert!(model1.get_embedding("cat", &data).is_some());
+        assert!(model8.get_embedding("cat", &data).is_some());
     }
 }
