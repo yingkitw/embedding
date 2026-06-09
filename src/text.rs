@@ -1,6 +1,20 @@
 use std::collections::HashMap;
 use unicode_normalization::UnicodeNormalization;
 
+/// Checks if a character belongs to a CJK script.
+fn is_cjk_char(ch: char) -> bool {
+    let c = ch as u32;
+    (0x4E00..=0x9FFF).contains(&c)
+        || (0x3400..=0x4DBF).contains(&c)
+        || (0xF900..=0xFAFF).contains(&c)
+        || (0x3040..=0x309F).contains(&c)
+        || (0x30A0..=0x30FF).contains(&c)
+        || (0xAC00..=0xD7AF).contains(&c)
+        || (0x1100..=0x11FF).contains(&c)
+        || (0x3000..=0x303F).contains(&c)
+        || (0xFF00..=0xFFEF).contains(&c)
+}
+
 /// Builds a vocabulary map and reverse lookup from tokenized sentences.
 pub fn build_vocab(sentences: &[Vec<String>]) -> (HashMap<String, usize>, Vec<String>) {
     let mut vocab = HashMap::new();
@@ -69,14 +83,37 @@ impl TextProcessor {
         }
 
         let mut sentences = Vec::new();
+        let has_cjk = text.chars().any(is_cjk_char);
 
-        // Split into sentences
-        for sentence in text.split(['.', '!', '?', '\n']) {
-            if !sentence.trim().is_empty() {
-                let mut processed_words = Vec::new();
+        let delimiters: &[char] = if has_cjk {
+            &['.', '!', '?', '\n', '\u{3002}', '\u{FF01}', '\u{FF1F}', ';']
+        } else {
+            &['.', '!', '?', '\n']
+        };
 
-                // Split into words and process each word
-                for word in sentence.split_whitespace() {
+        for sentence in text.split(delimiters) {
+            let trimmed = sentence.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            let mut processed_words = Vec::new();
+
+            if has_cjk {
+                // Character-level tokenization for CJK
+                for ch in trimmed.chars() {
+                    if ch.is_whitespace() {
+                        continue;
+                    }
+                    let s = ch.to_string();
+                    let processed = self.process_word(&s);
+                    if !processed.is_empty() {
+                        processed_words.push(processed);
+                    }
+                }
+            } else {
+                // Whitespace tokenization for Western languages
+                for word in trimmed.split_whitespace() {
                     let processed_word = self.process_word(word);
                     if !processed_word.is_empty() {
                         for subword in processed_word.split_whitespace() {
@@ -84,10 +121,10 @@ impl TextProcessor {
                         }
                     }
                 }
+            }
 
-                if !processed_words.is_empty() {
-                    sentences.push(processed_words);
-                }
+            if !processed_words.is_empty() {
+                sentences.push(processed_words);
             }
         }
 
@@ -129,10 +166,13 @@ impl TextProcessor {
             result = result.to_lowercase();
         }
 
-        // Remove punctuation
+        // Remove punctuation: keep all Unicode letters and marks
         if self.remove_punctuation {
-            result = result.chars()
-                .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+            result = result
+                .chars()
+                .filter(|c| {
+                    c.is_alphabetic() || c.is_numeric() || c.is_whitespace()
+                })
                 .collect::<String>()
                 .trim()
                 .to_string();

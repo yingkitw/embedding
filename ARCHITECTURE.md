@@ -11,12 +11,14 @@ The codebase is organized into domain modules under `src/`:
 | `training` | `src/training.rs` | Training algorithms (SkipGram, CBOW), gradient computation, learning rate scheduling, early stopping |
 | `export` | `src/export.rs` | Export formats: text, Word2Vec, NumPy `.npy`, ONNX |
 | `config` | `src/config.rs` | Training hyperparameters (`TrainingConfig`, `LearningRateSchedule`, `EarlyStoppingConfig`), `ModelType`, `TrainingData`, `DataLoader` |
+| `code` | `src/code.rs` | Source code preprocessing (`CodeProcessor`), comment stripping, camelCase splitting, code tokenization (`load_code_data`) |
 | `text` | `src/text.rs` | Text processing pipeline (`TextProcessor`), vocabulary building (`build_vocab`), text loading (`load_text_data`) |
 | `tokenizer` | `src/tokenizer.rs` | Byte Pair Encoding tokenizer (`BPETokenizer`) |
 | `search` | `src/search.rs` | Approximate nearest-neighbor search (`LSHIndex`), query expansion (`QueryExpander`), hierarchical clustering (`HierarchicalClustering`) |
 | `evaluation` | `src/evaluation.rs` | Evaluation metrics (`EvaluationMetrics`, `ValidationData`) |
 | `transfer` | `src/transfer.rs` | Transfer learning and auxiliary structures: `MultimodalFusion`, `CrossLingualAligner`, `DomainAdapter`, `DocumentEmbedder`, `SubwordEmbedder`, `ZeroShotTransfer` |
-| `cli` | `src/cli.rs` | CLI definitions and command handlers (`Cli`, `Commands`, `run`) |
+| `cli` | `src/cli.rs` | CLI definitions (`Cli`, `Commands`, `run` dispatcher) |
+| `commands` | `src/commands.rs` | CLI command handlers (`handle_train`, `handle_similarity`, `handle_info`, `handle_export`, `handle_interactive`) |
 
 ## Public API Surface
 

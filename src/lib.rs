@@ -7,6 +7,7 @@
 //! - Learning rate scheduling (constant, exponential, step, cosine)
 //! - Early stopping and evaluation metrics
 //! - Text preprocessing (HTML stripping, URL removal, contraction expansion)
+//! - Source code preprocessing (comment stripping, camelCase splitting)
 //! - BPE subword tokenization
 //! - Export to Word2Vec, NumPy, ONNX, and binary formats
 //! - Semantic search, analogy solving, and embedding arithmetic
@@ -48,12 +49,14 @@ pub mod onnx {
 pub mod config;
 pub mod evaluation;
 pub mod search;
+pub mod code;
 pub mod text;
 pub mod tokenizer;
 pub mod transfer;
 pub use config::*;
 pub use evaluation::*;
 pub use search::*;
+pub use code::*;
 pub use text::*;
 pub use tokenizer::*;
 pub use transfer::*;
@@ -62,6 +65,7 @@ pub mod model;
 mod training;
 mod export;
 pub mod cli;
+mod commands;
 pub use model::*;
 
 #[cfg(test)]
@@ -756,6 +760,111 @@ mod tests {
         assert_eq!(sentences[0].len(), 1);
         // After NFC normalization it should be "café"
         assert_eq!(sentences[0][0], "caf\u{00e9}");
+    }
+
+    #[test]
+    fn test_code_embedding_pipeline() {
+        let code = r#"
+            fn computeEmbeddingVector(input: Vec<f32>) -> Vec<f32> {
+                let result = vec![];
+                for x in input {
+                    result.push(x * 2.0);
+                }
+                result
+            }
+        "#;
+        let sentences = load_code_data(code);
+        assert!(!sentences.is_empty());
+
+        let (vocab, reverse_vocab) = build_vocab(&sentences);
+        assert!(vocab.contains_key("compute"));
+        assert!(vocab.contains_key("embedding"));
+        assert!(vocab.contains_key("vector"));
+        assert!(vocab.contains_key("result"));
+
+        let data = TrainingData { sentences, vocab, reverse_vocab };
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        assert!(model.train(&data).is_ok());
+
+        // Check that code tokens have embeddings
+        assert!(model.get_embedding("embedding", &data).is_some());
+        assert!(model.get_embedding("vector", &data).is_some());
+    }
+
+    #[test]
+    fn test_western_language_embedding_pipeline() {
+        // French text with diacritics
+        let text = "Le chat noir dort sur le tapis. Le chien brun joue dans le jardin.";
+        let sentences = load_text_data(text);
+        assert!(!sentences.is_empty());
+
+        let (vocab, reverse_vocab) = build_vocab(&sentences);
+        // Verify French words are preserved including accented characters
+        assert!(vocab.contains_key("chat"));
+        assert!(vocab.contains_key("noir"));
+        assert!(vocab.contains_key("dort"));
+        assert!(vocab.contains_key("chien"));
+        assert!(vocab.contains_key("jardin"));
+
+        let data = TrainingData { sentences, vocab, reverse_vocab };
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        assert!(model.train(&data).is_ok());
+
+        // French words should have embeddings
+        assert!(model.get_embedding("chat", &data).is_some());
+        assert!(model.get_embedding("chien", &data).is_some());
+        assert!(model.get_embedding("jardin", &data).is_some());
+    }
+
+    #[test]
+    fn test_chinese_embedding_pipeline() {
+        // Chinese text
+        let text = "猫坐在垫子上。狗在花园里玩。猫追狗。";
+        let sentences = load_text_data(text);
+        assert!(!sentences.is_empty());
+
+        let (vocab, reverse_vocab) = build_vocab(&sentences);
+        // Verify Chinese characters are tokenized individually
+        assert!(vocab.contains_key("猫"));
+        assert!(vocab.contains_key("坐"));
+        assert!(vocab.contains_key("狗"));
+        assert!(vocab.contains_key("花"));
+        assert!(vocab.contains_key("追"));
+
+        let data = TrainingData { sentences, vocab, reverse_vocab };
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        assert!(model.train(&data).is_ok());
+
+        // Chinese characters should have embeddings
+        assert!(model.get_embedding("猫", &data).is_some());
+        assert!(model.get_embedding("狗", &data).is_some());
+        assert!(model.get_embedding("追", &data).is_some());
+    }
+
+    #[test]
+    fn test_japanese_embedding_pipeline() {
+        // Japanese text with hiragana and kanji
+        let text = "猫はマットの上に座っています。犬は庭で遊んでいます。";
+        let sentences = load_text_data(text);
+        assert!(!sentences.is_empty());
+
+        let (vocab, reverse_vocab) = build_vocab(&sentences);
+        // Verify Japanese characters are tokenized
+        assert!(vocab.contains_key("猫"));
+        assert!(vocab.contains_key("座"));
+        assert!(vocab.contains_key("犬"));
+        assert!(vocab.contains_key("遊"));
+
+        let data = TrainingData { sentences, vocab, reverse_vocab };
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        assert!(model.train(&data).is_ok());
+
+        assert!(model.get_embedding("猫", &data).is_some());
+        assert!(model.get_embedding("犬", &data).is_some());
     }
 
     #[test]
