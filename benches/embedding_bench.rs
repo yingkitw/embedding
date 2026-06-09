@@ -27,7 +27,6 @@ fn bench_skipgram_training(c: &mut Criterion) {
         lr_schedule: LearningRateSchedule::Constant,
         early_stopping: None,
         l2_regularization: None,
-        dropout_rate: None,
         gradient_clip: None,
     };
     
@@ -66,7 +65,6 @@ fn bench_cbow_training(c: &mut Criterion) {
         lr_schedule: LearningRateSchedule::Constant,
         early_stopping: None,
         l2_regularization: None,
-        dropout_rate: None,
         gradient_clip: None,
     };
     
@@ -105,7 +103,6 @@ fn bench_similarity_calculation(c: &mut Criterion) {
         lr_schedule: LearningRateSchedule::Constant,
         early_stopping: None,
         l2_regularization: None,
-        dropout_rate: None,
         gradient_clip: None,
     };
     
@@ -145,7 +142,6 @@ fn bench_embedding_retrieval(c: &mut Criterion) {
         lr_schedule: LearningRateSchedule::Constant,
         early_stopping: None,
         l2_regularization: None,
-        dropout_rate: None,
         gradient_clip: None,
     };
     
@@ -200,7 +196,6 @@ fn bench_semantic_search(c: &mut Criterion) {
         lr_schedule: LearningRateSchedule::Constant,
         early_stopping: None,
         l2_regularization: None,
-        dropout_rate: None,
         gradient_clip: None,
     };
 
@@ -240,7 +235,6 @@ fn bench_analogy(c: &mut Criterion) {
         lr_schedule: LearningRateSchedule::Constant,
         early_stopping: None,
         l2_regularization: None,
-        dropout_rate: None,
         gradient_clip: None,
     };
 
@@ -280,7 +274,6 @@ fn bench_lsh_query(c: &mut Criterion) {
         lr_schedule: LearningRateSchedule::Constant,
         early_stopping: None,
         l2_regularization: None,
-        dropout_rate: None,
         gradient_clip: None,
     };
 
@@ -323,7 +316,6 @@ fn bench_sentence_embedding(c: &mut Criterion) {
         lr_schedule: LearningRateSchedule::Constant,
         early_stopping: None,
         l2_regularization: None,
-        dropout_rate: None,
         gradient_clip: None,
     };
 

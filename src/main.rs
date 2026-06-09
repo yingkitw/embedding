@@ -56,7 +56,7 @@ enum Commands {
         #[arg(short, long, default_value = "5")]
         negative_samples: usize,
 
-        /// Model type: skipgram, cbow, or sentencebert
+        /// Model type: skipgram or cbow
         #[arg(short, long, default_value = "skipgram")]
         model_type: String,
     },
@@ -190,9 +190,8 @@ fn main() {
             let model_type = match model_type.as_str() {
                 "skipgram" => ModelType::SkipGram,
                 "cbow" => ModelType::Cbow,
-                "sentencebert" => ModelType::SentenceBERT,
                 _ => {
-                    error!("Unknown model type: {}. Use skipgram, cbow, or sentencebert", model_type);
+                    error!("Unknown model type: {}. Use skipgram or cbow", model_type);
                     std::process::exit(1);
                 }
             };
@@ -221,7 +220,6 @@ fn main() {
                     lr_schedule: LearningRateSchedule::Constant,
                     early_stopping: None,
                     l2_regularization: None,
-                    dropout_rate: None,
                     gradient_clip: None,
                 }
             };
@@ -442,7 +440,6 @@ fn main() {
                 lr_schedule: LearningRateSchedule::Constant,
                 early_stopping: None,
                 l2_regularization: None,
-                dropout_rate: None,
                 gradient_clip: None,
             };
 

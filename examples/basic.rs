@@ -39,7 +39,6 @@ fn main() -> Result<(), String> {
         lr_schedule: LearningRateSchedule::Constant,
         early_stopping: None,
         l2_regularization: None,
-        dropout_rate: None,
         gradient_clip: None,
     };
     

@@ -210,7 +210,6 @@ fn advanced_example() -> Result<(), String> {
 
 - **`skipgram`**: Skip-gram algorithm (default)
 - **`cbow`**: Continuous Bag of Words
-- **`sentencebert`**: Sentence-BERT style training
 
 ### Export Formats
 
@@ -236,7 +235,7 @@ embedding-train train [OPTIONS]
 - `--batch-size <SIZE>` - Batch size (default: 32)
 - `--window <SIZE>` - Context window size (default: 5)
 - `--negative-samples <COUNT>` - Negative samples (default: 5)
-- `--model-type <TYPE>` - Algorithm type (skipgram|cbow|sentencebert)
+- `--model-type <TYPE>` - Algorithm type (skipgram|cbow)
 
 ### Similarity Command
 
@@ -309,14 +308,14 @@ Natural language processing deals with text and speech.
 Computer vision enables computers to understand images.
 EOF
 
-# Train with Sentence-BERT style
+# Train with CBOW
 embedding-train train \
     --input documents.txt \
     --output doc_model.json \
     --embeddings doc_embeddings.txt \
     --dim 100 \
     --epochs 15 \
-    --model-type sentencebert
+    --model-type cbow
 ```
 
 ### Example 3: Large Dataset Processing

@@ -21,7 +21,6 @@ fn test_end_to_end_training_pipeline() {
         lr_schedule: LearningRateSchedule::Constant,
         early_stopping: None,
         l2_regularization: None,
-        dropout_rate: None,
         gradient_clip: None,
     };
 
@@ -60,7 +59,6 @@ fn test_save_and_load_embeddings() {
         lr_schedule: LearningRateSchedule::Constant,
         early_stopping: None,
         l2_regularization: None,
-        dropout_rate: None,
         gradient_clip: None,
     };
 
@@ -102,6 +100,7 @@ fn test_text_processing_pipeline() {
         remove_urls: true,
         expand_contractions: true,
         remove_stop_words: false,
+        normalize_unicode: false,
         language: "en".to_string(),
     };
 
@@ -127,7 +126,6 @@ fn test_cbow_and_skipgram_produce_different_results() {
         lr_schedule: LearningRateSchedule::Constant,
         early_stopping: None,
         l2_regularization: None,
-        dropout_rate: None,
         gradient_clip: None,
     };
 
@@ -181,7 +179,6 @@ fn test_learning_rate_schedule_convergence() {
             lr_schedule: schedule,
             early_stopping: None,
             l2_regularization: None,
-            dropout_rate: None,
             gradient_clip: None,
         };
 
@@ -214,7 +211,6 @@ mod property_tests {
                 lr_schedule: LearningRateSchedule::Constant,
                 early_stopping: None,
                 l2_regularization: None,
-                dropout_rate: None,
                 gradient_clip: None,
             };
             let mut model = EmbeddingModel::new(config, data.vocab.len());
@@ -242,7 +238,6 @@ mod property_tests {
                 lr_schedule: LearningRateSchedule::Constant,
                 early_stopping: None,
                 l2_regularization: None,
-                dropout_rate: None,
                 gradient_clip: None,
             };
             let mut model = EmbeddingModel::new(config, data.vocab.len());
