@@ -103,11 +103,13 @@
   - API documentation with examples
   - Examples moved to `examples/` folder (`basic.rs`, `data.txt`)
 
-- [ ] **Extended testing**
+- [x] **Extended testing**
   - [x] Unit tests for training (SkipGram, CBOW, save, similarity)
+  - [x] Edge case tests (empty text, single word, LR schedules, early stopping)
+  - [x] Text processing tests (HTML stripping, URL removal, contraction expansion)
+  - [x] Integration tests for real-world scenarios (end-to-end pipeline, save/load, model comparison)
   - Property-based testing
   - Fuzzing for edge cases
-  - Integration tests for real-world scenarios
 
 - [ ] **Performance benchmarks**
   - Compare with existing implementations (Word2Vec, GloVe)
@@ -125,9 +127,10 @@
   - Streaming similarity search
 
 - [ ] **Export formats**
+  - [x] Word2Vec/Gensim text format (`save_word2vec_format`, `load_word2vec_format`)
+  - [x] Binary serialization (bincode)
   - Support for TensorFlow/PyTorch formats
   - Add ONNX export
-  - Custom format specifications
 
 ### 9. Community & Integration
 - [x] **Package distribution**
@@ -195,7 +198,7 @@
 ## Completion Criteria ✅
 
 - [x] Core training algorithm produces meaningful embeddings
-- [x] All tests passing (13 unit tests, 0 failures)
+- [x] All tests passing (24 tests: 19 unit + 5 integration, 0 failures)
 - [ ] Performance benchmarks meet or exceed Word2Vec/GloVe
 - [x] Comprehensive documentation and examples
 - [x] CLI interface fully functional with all commands working

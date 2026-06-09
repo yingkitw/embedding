@@ -347,8 +347,15 @@ fn main() {
                     
                     info!("Embeddings exported to binary format: {}", output);
                 }
+                "word2vec" => {
+                    if let Err(e) = model.save_word2vec_format(&output, &training_data) {
+                        error!("Failed to export embeddings: {}", e);
+                        std::process::exit(1);
+                    }
+                    info!("Embeddings exported to Word2Vec format: {}", output);
+                }
                 _ => {
-                    error!("Unknown export format: {}. Use text, json, or bin", format);
+                    error!("Unknown export format: {}. Use text, json, bin, or word2vec", format);
                     std::process::exit(1);
                 }
             }

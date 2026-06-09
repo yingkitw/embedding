@@ -588,20 +588,73 @@ impl EmbeddingModel {
     pub fn save_embeddings(&self, path: &str, data: &TrainingData) -> Result<(), String> {
         use std::fs::File;
         use std::io::Write;
-        
+
         let mut file = File::create(path).map_err(|e| e.to_string())?;
-        
+
         for (word_id, word) in data.reverse_vocab.iter().enumerate() {
             let embedding = self.embeddings.row(word_id);
             let embedding_str = embedding.iter()
                 .map(|&x| x.to_string())
                 .collect::<Vec<_>>()
                 .join(",");
-            
+
             writeln!(file, "{}\t{}", word, embedding_str).map_err(|e| e.to_string())?;
         }
-        
+
         Ok(())
+    }
+
+    pub fn save_word2vec_format(&self, path: &str, data: &TrainingData) -> Result<(), String> {
+        use std::fs::File;
+        use std::io::Write;
+
+        let mut file = File::create(path).map_err(|e| e.to_string())?;
+        let vocab_size = data.reverse_vocab.len();
+        let dim = self.config.embedding_dim;
+
+        writeln!(file, "{} {}", vocab_size, dim).map_err(|e| e.to_string())?;
+
+        for (word_id, word) in data.reverse_vocab.iter().enumerate() {
+            let embedding = self.embeddings.row(word_id);
+            let values: Vec<String> = embedding.iter().map(|&x| format!("{:.6}", x)).collect();
+            writeln!(file, "{} {}", word, values.join(" ")).map_err(|e| e.to_string())?;
+        }
+
+        Ok(())
+    }
+
+    pub fn load_word2vec_format(path: &str) -> Result<(HashMap<String, Vec<f32>>, usize), String> {
+        use std::fs::File;
+        use std::io::{BufRead, BufReader};
+
+        let file = File::open(path).map_err(|e| e.to_string())?;
+        let reader = BufReader::new(file);
+        let mut lines = reader.lines();
+
+        let header = lines.next()
+            .ok_or("Empty file")?
+            .map_err(|e| e.to_string())?;
+        let parts: Vec<&str> = header.split_whitespace().collect();
+        if parts.len() != 2 {
+            return Err("Invalid header format".to_string());
+        }
+        let _vocab_size: usize = parts[0].parse().map_err(|_| "Invalid vocab size")?;
+        let dim: usize = parts[1].parse().map_err(|_| "Invalid dimension")?;
+
+        let mut embeddings = HashMap::new();
+        for line in lines {
+            let line = line.map_err(|e| e.to_string())?;
+            let mut parts = line.split_whitespace();
+            let word = parts.next().ok_or("Missing word")?.to_string();
+            let values: Result<Vec<f32>, _> = parts.map(|s| s.parse()).collect();
+            let values = values.map_err(|_| "Invalid float value")?;
+            if values.len() != dim {
+                return Err(format!("Expected {} dimensions, got {}", dim, values.len()));
+            }
+            embeddings.insert(word, values);
+        }
+
+        Ok((embeddings, dim))
     }
 
     pub fn similarity(&self, word1: &str, word2: &str, data: &TrainingData) -> Option<f32> {
@@ -1328,5 +1381,72 @@ mod tests {
         // Both should produce embeddings for known words
         assert!(model1.get_embedding("cat", &data).is_some());
         assert!(model8.get_embedding("cat", &data).is_some());
+    }
+
+    #[test]
+    fn test_empty_text() {
+        let sentences = load_text_data("");
+        assert!(sentences.is_empty());
+    }
+
+    #[test]
+    fn test_single_word_text() {
+        let sentences = load_text_data("hello");
+        assert_eq!(sentences.len(), 1);
+        assert_eq!(sentences[0], vec!["hello"]);
+    }
+
+    #[test]
+    fn test_learning_rate_schedules() {
+        let data = make_test_data();
+
+        let mut config_exp = test_config(ModelType::SkipGram);
+        config_exp.lr_schedule = LearningRateSchedule::Exponential { decay_rate: 0.9 };
+        let mut model_exp = EmbeddingModel::new(config_exp, data.vocab.len());
+        assert!(model_exp.train(&data).is_ok());
+
+        let mut config_step = test_config(ModelType::SkipGram);
+        config_step.lr_schedule = LearningRateSchedule::Step { step_size: 1, gamma: 0.5 };
+        let mut model_step = EmbeddingModel::new(config_step, data.vocab.len());
+        assert!(model_step.train(&data).is_ok());
+
+        let mut config_cos = test_config(ModelType::SkipGram);
+        config_cos.lr_schedule = LearningRateSchedule::Cosine { t_max: 2 };
+        let mut model_cos = EmbeddingModel::new(config_cos, data.vocab.len());
+        assert!(model_cos.train(&data).is_ok());
+    }
+
+    #[test]
+    fn test_early_stopping() {
+        let data = make_test_data();
+        let mut config = test_config(ModelType::SkipGram);
+        config.early_stopping = Some(EarlyStoppingConfig { patience: 1, min_delta: 0.001 });
+        config.epochs = 10;
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        assert!(model.train(&data).is_ok());
+    }
+
+    #[test]
+    fn test_word2vec_format_roundtrip() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        model.train(&data).unwrap();
+
+        let temp_path = std::env::temp_dir().join("test_word2vec.txt");
+        let path_str = temp_path.to_str().unwrap();
+
+        // Save in Word2Vec format
+        assert!(model.save_word2vec_format(path_str, &data).is_ok());
+
+        // Load and verify
+        let (loaded, dim) = EmbeddingModel::load_word2vec_format(path_str).unwrap();
+        assert_eq!(dim, 8);
+        assert!(loaded.contains_key("cat"));
+        assert!(loaded.contains_key("dog"));
+        assert_eq!(loaded.get("cat").unwrap().len(), 8);
+        assert_eq!(loaded.get("dog").unwrap().len(), 8);
+
+        std::fs::remove_file(path_str).ok();
     }
 }
