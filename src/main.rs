@@ -19,39 +19,43 @@ enum Commands {
         /// Input text file path
         #[arg(short, long)]
         input: String,
-        
+
         /// Output model file path
         #[arg(short, long)]
         output: String,
-        
+
         /// Output embeddings file path
         #[arg(short, long)]
         embeddings: String,
-        
+
+        /// Config JSON file path (overrides other flags)
+        #[arg(short, long)]
+        config: Option<String>,
+
         /// Embedding dimension
         #[arg(short, long, default_value = "300")]
         dim: usize,
-        
+
         /// Learning rate
         #[arg(short, long, default_value = "0.025")]
         learning_rate: f64,
-        
+
         /// Number of training epochs
         #[arg(short, long, default_value = "10")]
         epochs: usize,
-        
+
         /// Batch size
         #[arg(short, long, default_value = "32")]
         batch_size: usize,
-        
+
         /// Context window size
         #[arg(short, long, default_value = "5")]
         window: usize,
-        
+
         /// Number of negative samples
         #[arg(short, long, default_value = "5")]
         negative_samples: usize,
-        
+
         /// Model type: skipgram, cbow, or sentencebert
         #[arg(short, long, default_value = "skipgram")]
         model_type: String,
@@ -117,6 +121,7 @@ fn main() {
             input,
             output,
             embeddings,
+            config: config_path,
             dim,
             learning_rate,
             epochs,
@@ -126,26 +131,26 @@ fn main() {
             model_type,
         } => {
             info!("Starting embedding training...");
-            
+
             // Load and prepare data
             let text = fs::read_to_string(&input)
                 .unwrap_or_else(|_| {
                     error!("Failed to read input file: {}", input);
                     std::process::exit(1);
                 });
-            
+
             let sentences = load_text_data(&text);
             info!("Loaded {} sentences", sentences.len());
-            
+
             let (vocab, reverse_vocab) = build_vocab(&sentences);
             info!("Built vocabulary with {} words", vocab.len());
-            
+
             let training_data = TrainingData {
                 sentences,
                 vocab,
                 reverse_vocab,
             };
-            
+
             // Parse model type
             let model_type = match model_type.as_str() {
                 "skipgram" => ModelType::SkipGram,
@@ -156,20 +161,33 @@ fn main() {
                     std::process::exit(1);
                 }
             };
-            
-            // Create training config
-            let config = TrainingConfig {
-                embedding_dim: dim,
-                learning_rate,
-                epochs,
-                batch_size,
-                context_window: window,
-                negative_samples,
-                model_type,
-                lr_schedule: LearningRateSchedule::Constant,
-                early_stopping: None,
-                l2_regularization: None,
-                dropout_rate: None,
+
+            // Create training config from CLI or JSON file
+            let config = if let Some(path) = config_path {
+                let config_json = fs::read_to_string(&path)
+                    .unwrap_or_else(|_| {
+                        error!("Failed to read config file: {}", path);
+                        std::process::exit(1);
+                    });
+                serde_json::from_str(&config_json)
+                    .unwrap_or_else(|e| {
+                        error!("Failed to parse config file: {}", e);
+                        std::process::exit(1);
+                    })
+            } else {
+                TrainingConfig {
+                    embedding_dim: dim,
+                    learning_rate,
+                    epochs,
+                    batch_size,
+                    context_window: window,
+                    negative_samples,
+                    model_type,
+                    lr_schedule: LearningRateSchedule::Constant,
+                    early_stopping: None,
+                    l2_regularization: None,
+                    dropout_rate: None,
+                }
             };
             
             // Initialize and train model
@@ -204,7 +222,7 @@ fn main() {
             info!("Embeddings saved to: {}", embeddings);
         }
         
-        Commands::Similarity { word1, word2, model, vocab } => {
+        Commands::Similarity { word1, word2, model, vocab: _vocab } => {
             info!("Calculating similarity between '{}' and '{}'", word1, word2);
             
             let model_data = fs::read_to_string(&model)
@@ -228,7 +246,7 @@ fn main() {
             }
         }
         
-        Commands::Info { model, vocab } => {
+        Commands::Info { model, vocab: _vocab } => {
             info!("Inspecting model...");
             
             let model_data = fs::read_to_string(&model)
@@ -263,7 +281,7 @@ fn main() {
             }
         }
         
-        Commands::Export { model, vocab, output, format } => {
+        Commands::Export { model, vocab: _vocab, output, format } => {
             info!("Exporting embeddings...");
             
             let model_data = fs::read_to_string(&model)

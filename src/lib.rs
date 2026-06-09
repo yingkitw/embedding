@@ -173,8 +173,12 @@ mod embeddings_serializer {
 
 impl EmbeddingModel {
     pub fn new(config: TrainingConfig, vocab_size: usize) -> Self {
-        let embeddings = Array::zeros((vocab_size, config.embedding_dim));
-        
+        let mut rng = rand::thread_rng();
+        let scale = 1.0 / (config.embedding_dim as f32).sqrt();
+        let embeddings = Array::from_shape_fn((vocab_size, config.embedding_dim), |_| {
+            rng.gen_range(-0.5..0.5) * scale
+        });
+
         Self {
             embeddings,
             config,
@@ -202,7 +206,7 @@ impl EmbeddingModel {
             let current_lr = self.get_learning_rate(epoch, self.config.epochs);
             info!("Current learning rate: {:.6}", current_lr);
             
-            let total_loss = 0.0;
+            let mut total_loss = 0.0;
             let mut num_updates = 0;
             
             for (_sentence_idx, sentence) in data.sentences.iter().enumerate() {
@@ -222,11 +226,9 @@ impl EmbeddingModel {
                         for context_idx in start..end {
                             if context_idx != target_idx {
                                 if let Some(&context_id) = data.vocab.get(&sentence[context_idx]) {
-            // Use current learning rate
-            let temp_lr = self.config.learning_rate as f32;
-            let current_lr_f32 = current_lr;
-            self.update_skipgram_with_lr(target_id, context_id, &negative_samples, current_lr_f32);
-            num_updates += 1;
+                                    let loss = self.update_skipgram_with_lr(target_id, context_id, &negative_samples, current_lr);
+                                    total_loss += loss;
+                                    num_updates += 1;
                                 }
                             }
                         }
@@ -263,7 +265,7 @@ impl EmbeddingModel {
             let current_lr = self.get_learning_rate(epoch, self.config.epochs);
             info!("Current learning rate: {:.6}", current_lr);
             
-            let total_loss = 0.0;
+            let mut total_loss = 0.0;
             let mut num_updates = 0;
             
             for (_sentence_idx, sentence) in data.sentences.iter().enumerate() {
@@ -290,9 +292,8 @@ impl EmbeddingModel {
                                 &mut rng
                             );
                             
-                            // Use current learning rate
-                            let current_lr_f32 = current_lr;
-                            self.update_cbow_with_lr(target_id, &context_ids, &negative_samples, current_lr_f32);
+                            let loss = self.update_cbow_with_lr(target_id, &context_ids, &negative_samples, current_lr);
+                            total_loss += loss;
                             num_updates += 1;
                         }
                     }
@@ -376,15 +377,15 @@ impl EmbeddingModel {
         self.update_skipgram_with_lr(target_id, context_id, negative_samples, self.config.learning_rate as f32);
     }
     
-    fn update_skipgram_with_lr(&mut self, target_id: usize, context_id: usize, negative_samples: &[usize], learning_rate: f32) {
+    fn update_skipgram_with_lr(&mut self, target_id: usize, context_id: usize, negative_samples: &[usize], learning_rate: f32) -> f32 {
         // Clone embeddings to avoid borrow checker issues
         let target_embedding: Vec<f32> = self.embeddings.row(target_id).to_vec();
         let context_embedding: Vec<f32> = self.embeddings.row(context_id).to_vec();
-        
+
         // Positive sample loss
         let dot_product: f32 = target_embedding.iter().zip(context_embedding.iter()).map(|(&a, &b)| a * b).sum();
         let prob_positive = sigmoid(dot_product);
-        
+
         // Update positive sample
         let grad_positive = prob_positive - 1.0;
         for i in 0..self.config.embedding_dim {
@@ -438,13 +439,22 @@ impl EmbeddingModel {
                 self.apply_dropout(neg_id, dropout_rate);
             }
         }
+
+        // Compute loss: -log(sigmoid(positive)) - sum(log(sigmoid(-negative)))
+        let mut loss = -prob_positive.ln();
+        for &neg_id in negative_samples {
+            let neg_embedding: Vec<f32> = self.embeddings.row(neg_id).to_vec();
+            let dot_product_neg: f32 = target_embedding.iter().zip(neg_embedding.iter()).map(|(&a, &b)| a * b).sum();
+            loss += -sigmoid(-dot_product_neg).ln();
+        }
+        loss
     }
 
     fn update_cbow(&mut self, target_id: usize, context_ids: &[usize], negative_samples: &[usize]) {
-        self.update_cbow_with_lr(target_id, context_ids, negative_samples, self.config.learning_rate as f32);
+        let _ = self.update_cbow_with_lr(target_id, context_ids, negative_samples, self.config.learning_rate as f32);
     }
     
-    fn update_cbow_with_lr(&mut self, target_id: usize, context_ids: &[usize], negative_samples: &[usize], learning_rate: f32) {
+    fn update_cbow_with_lr(&mut self, target_id: usize, context_ids: &[usize], negative_samples: &[usize], learning_rate: f32) -> f32 {
         // Calculate context vector (mean pooling)
         let mut context_vector = Array::zeros(self.config.embedding_dim);
         let mut context_embeddings: Vec<Vec<f32>> = Vec::new();
@@ -522,6 +532,16 @@ impl EmbeddingModel {
                 self.apply_dropout(neg_id, dropout_rate);
             }
         }
+
+        // Compute loss: -log(sigmoid(positive)) - sum(log(sigmoid(-negative)))
+        let mut loss = -prob_positive.ln();
+        for &neg_id in negative_samples {
+            let neg_embedding: Vec<f32> = self.embeddings.row(neg_id).to_vec();
+            let neg_arr = Array::from_shape_vec((self.config.embedding_dim,), neg_embedding).unwrap();
+            let dot_product_neg = context_vector.dot(&neg_arr);
+            loss += -sigmoid(-dot_product_neg).ln();
+        }
+        loss
     }
 
     pub fn get_embedding(&self, word: &str, data: &TrainingData) -> Option<Array1<f32>> {
@@ -631,7 +651,50 @@ impl EmbeddingModel {
         let quality = (avg_norm * avg_variance).sqrt();
         quality.min(1.0)  // Normalize to 0-1
     }
-    
+
+    pub fn normalize_embeddings(&mut self) {
+        for mut row in self.embeddings.rows_mut() {
+            let norm = row.iter().map(|&x| x * x).sum::<f32>().sqrt();
+            if norm > 0.0 {
+                row.map_inplace(|x| *x /= norm);
+            }
+        }
+    }
+
+    pub fn analogy(&self, word1: &str, word2: &str, word3: &str, data: &TrainingData, top_k: usize) -> Vec<(String, f32)> {
+        let emb1 = match self.get_embedding(word1, data) {
+            Some(e) => e,
+            None => return Vec::new(),
+        };
+        let emb2 = match self.get_embedding(word2, data) {
+            Some(e) => e,
+            None => return Vec::new(),
+        };
+        let emb3 = match self.get_embedding(word3, data) {
+            Some(e) => e,
+            None => return Vec::new(),
+        };
+
+        let target = &emb3 + &emb1 - &emb2;
+        let mut results = Vec::new();
+
+        for (word_id, word) in data.reverse_vocab.iter().enumerate() {
+            if word == word1 || word == word2 || word == word3 {
+                continue;
+            }
+            let candidate = self.embeddings.row(word_id);
+            let dot: f32 = target.iter().zip(candidate.iter()).map(|(&a, &b)| a * b).sum();
+            let norm_target = target.iter().map(|&x| x * x).sum::<f32>().sqrt();
+            let norm_candidate = candidate.iter().map(|&x| x * x).sum::<f32>().sqrt();
+            if norm_target > 0.0 && norm_candidate > 0.0 {
+                results.push((word.clone(), dot / (norm_target * norm_candidate)));
+            }
+        }
+
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        results.into_iter().take(top_k).collect()
+    }
+
     pub fn split_data(&self, sentences: &[Vec<String>], train_ratio: f64) -> (Vec<Vec<String>>, Vec<Vec<String>>) {
         let total_sentences = sentences.len();
         let train_size = (total_sentences as f64 * train_ratio) as usize;
@@ -809,6 +872,9 @@ pub struct TextProcessor {
     pub remove_punctuation: bool,
     pub remove_numbers: bool,
     pub remove_stop_words: bool,
+    pub remove_html: bool,
+    pub remove_urls: bool,
+    pub expand_contractions: bool,
     pub language: String,
 }
 
@@ -819,6 +885,9 @@ impl Default for TextProcessor {
             remove_punctuation: true,
             remove_numbers: false,
             remove_stop_words: false,
+            remove_html: false,
+            remove_urls: false,
+            expand_contractions: false,
             language: "en".to_string(),
         }
     }
@@ -826,38 +895,79 @@ impl Default for TextProcessor {
 
 impl TextProcessor {
     pub fn process_text(&self, text: &str) -> Vec<Vec<String>> {
+        let mut text = text.to_string();
+
+        // Remove HTML tags
+        if self.remove_html {
+            text = Self::strip_html(&text);
+        }
+
+        // Remove URLs
+        if self.remove_urls {
+            text = Self::strip_urls(&text);
+        }
+
         let mut sentences = Vec::new();
-        
+
         // Split into sentences
         for sentence in text.split(['.', '!', '?', '\n']) {
             if !sentence.trim().is_empty() {
                 let mut processed_words = Vec::new();
-                
+
                 // Split into words and process each word
                 for word in sentence.split_whitespace() {
                     let processed_word = self.process_word(word);
                     if !processed_word.is_empty() {
-                        processed_words.push(processed_word);
+                        for subword in processed_word.split_whitespace() {
+                            processed_words.push(subword.to_string());
+                        }
                     }
                 }
-                
+
                 if !processed_words.is_empty() {
                     sentences.push(processed_words);
                 }
             }
         }
-        
+
         sentences
     }
-    
+
+    fn strip_html(text: &str) -> String {
+        let mut result = String::new();
+        let mut in_tag = false;
+        for c in text.chars() {
+            if c == '<' {
+                in_tag = true;
+            } else if c == '>' {
+                in_tag = false;
+            } else if !in_tag {
+                result.push(c);
+            }
+        }
+        result
+    }
+
+    fn strip_urls(text: &str) -> String {
+        text.split_whitespace()
+            .filter(|word| !(word.starts_with("http://") || word.starts_with("https://") || word.starts_with("www.")))
+            .collect::<Vec<&str>>()
+            .join(" ")
+    }
+
     fn process_word(&self, word: &str) -> String {
         let mut result = word.to_string();
-        
+
+        // Expand contractions
+        if self.expand_contractions {
+            result = Self::expand_contraction(&result);
+        }
+
         // Convert to lowercase
         if self.lowercase {
             result = result.to_lowercase();
         }
-        
+
         // Remove punctuation
         if self.remove_punctuation {
             result = result.chars()
@@ -866,20 +976,56 @@ impl TextProcessor {
                 .trim()
                 .to_string();
         }
-        
+
         // Remove numbers
         if self.remove_numbers {
             result = result.chars()
                 .filter(|c| !c.is_ascii_digit())
                 .collect::<String>();
         }
-        
+
         // Remove empty strings
         if result.is_empty() {
             return String::new();
         }
-        
+
         result
+    }
+
+    fn expand_contraction(word: &str) -> String {
+        match word.to_lowercase().as_str() {
+            "can't" => "cannot".to_string(),
+            "won't" => "will not".to_string(),
+            "n't" => " not".to_string(),
+            "'re" => " are".to_string(),
+            "'ve" => " have".to_string(),
+            "'ll" => " will".to_string(),
+            "'d" => " would".to_string(),
+            "'m" => " am".to_string(),
+            "i'm" => "i am".to_string(),
+            "don't" => "do not".to_string(),
+            "doesn't" => "does not".to_string(),
+            "didn't" => "did not".to_string(),
+            "isn't" => "is not".to_string(),
+            "aren't" => "are not".to_string(),
+            "wasn't" => "was not".to_string(),
+            "weren't" => "were not".to_string(),
+            "haven't" => "have not".to_string(),
+            "hasn't" => "has not".to_string(),
+            "hadn't" => "had not".to_string(),
+            "wouldn't" => "would not".to_string(),
+            "couldn't" => "could not".to_string(),
+            "shouldn't" => "should not".to_string(),
+            "let's" => "let us".to_string(),
+            "that's" => "that is".to_string(),
+            "who's" => "who is".to_string(),
+            "what's" => "what is".to_string(),
+            "here's" => "here is".to_string(),
+            "there's" => "there is".to_string(),
+            "where's" => "where is".to_string(),
+            "it's" => "it is".to_string(),
+            _ => word.to_string(),
+        }
     }
     
     pub fn detect_language(&self, text: &str) -> String {
@@ -982,6 +1128,9 @@ mod tests {
         assert!(model.get_embedding("cat", &data).is_some());
         assert!(model.get_embedding("dog", &data).is_some());
         assert!(model.get_embedding("the", &data).is_some());
+
+        // Similarity should return a value for known pairs
+        assert!(model.similarity("cat", "dog", &data).is_some());
     }
 
     #[test]
@@ -994,6 +1143,7 @@ mod tests {
 
         assert!(model.get_embedding("cat", &data).is_some());
         assert!(model.get_embedding("dog", &data).is_some());
+        assert!(model.similarity("cat", "dog", &data).is_some());
     }
 
     #[test]
@@ -1024,5 +1174,96 @@ mod tests {
 
         assert!(model.similarity("cat", "nonexistent", &data).is_none());
         assert!(model.similarity("nonexistent", "dog", &data).is_none());
+    }
+
+    #[test]
+    fn test_strip_html() {
+        let processor = TextProcessor {
+            remove_html: true,
+            remove_punctuation: false,
+            lowercase: false,
+            ..TextProcessor::default()
+        };
+        let text = "<p>Hello world!</p> This is a <b>test</b>.";
+        let sentences = processor.process_text(text);
+        assert_eq!(sentences.len(), 2);
+        assert_eq!(sentences[0], vec!["Hello", "world"]);
+        assert_eq!(sentences[1], vec!["This", "is", "a", "test"]);
+    }
+
+    #[test]
+    fn test_strip_urls() {
+        let processor = TextProcessor {
+            remove_urls: true,
+            remove_punctuation: true,
+            lowercase: true,
+            ..TextProcessor::default()
+        };
+        let text = "Visit https://example.com for info. See www.test.org too.";
+        let sentences = processor.process_text(text);
+        assert_eq!(sentences.len(), 2);
+        assert_eq!(sentences[0], vec!["visit", "for", "info"]);
+        assert_eq!(sentences[1], vec!["see", "too"]);
+    }
+
+    #[test]
+    fn test_expand_contractions() {
+        let processor = TextProcessor {
+            expand_contractions: true,
+            remove_punctuation: true,
+            lowercase: true,
+            ..TextProcessor::default()
+        };
+        let text = "I can't do this. It's a test.";
+        let sentences = processor.process_text(text);
+        assert_eq!(sentences.len(), 2);
+        // "can't" -> "cannot", then punctuation stripped
+        assert_eq!(sentences[0], vec!["i", "cannot", "do", "this"]);
+        assert_eq!(sentences[1], vec!["it", "is", "a", "test"]);
+    }
+
+    #[test]
+    fn test_normalize_embeddings() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        model.train(&data).unwrap();
+        model.normalize_embeddings();
+
+        for row in model.embeddings.rows() {
+            let norm = row.iter().map(|&x| x * x).sum::<f32>().sqrt();
+            assert!((norm - 1.0).abs() < 1e-5 || norm == 0.0);
+        }
+    }
+
+    #[test]
+    fn test_analogy_unknown_word() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        model.train(&data).unwrap();
+
+        assert!(model.analogy("unknown", "cat", "dog", &data, 1).is_empty());
+    }
+
+    #[test]
+    fn test_split_data() {
+        let sentences = vec![
+            vec!["a".to_string()],
+            vec!["b".to_string()],
+            vec!["c".to_string()],
+            vec!["d".to_string()],
+            vec!["e".to_string()],
+            vec!["f".to_string()],
+            vec!["g".to_string()],
+            vec!["h".to_string()],
+            vec!["i".to_string()],
+            vec!["j".to_string()],
+        ];
+        let config = test_config(ModelType::SkipGram);
+        let model = EmbeddingModel::new(config, 1);
+        let (train, val) = model.split_data(&sentences, 0.7);
+        assert_eq!(train.len(), 7);
+        assert_eq!(val.len(), 3);
     }
 }
