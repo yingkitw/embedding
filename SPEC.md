@@ -3,7 +3,7 @@
 ## 1. Overview
 
 ### 1.1. Purpose
-This document specifies the requirements, architecture, and implementation details for the Rust Embedding Trainer library and CLI tool. The project provides a comprehensive solution for training word embeddings from scratch using multiple algorithms including Skip-gram, CBOW, and Sentence-BERT approaches.
+This document specifies the requirements, architecture, and implementation details for the Rust Embedding Trainer library and CLI tool. The project provides a comprehensive solution for training word embeddings from scratch using Skip-gram and CBOW algorithms.
 
 ### 1.2. Scope
 - **Core library**: Implementation of embedding training algorithms
@@ -17,7 +17,6 @@ This document specifies the requirements, architecture, and implementation detai
 - **Embedding**: Dense vector representation of words in continuous space
 - **Skip-gram**: Neural network architecture that predicts context words from target words
 - **CBOW**: Continuous Bag of Words architecture that predicts target words from context
-- **Sentence-BERT**: Transformer-based approach for sentence embeddings
 - **Vocabulary**: Mapping of words to unique integer identifiers
 - **Context window**: Number of surrounding words used for training
 
@@ -37,12 +36,6 @@ This document specifies the requirements, architecture, and implementation detai
   - Efficient gradient calculation
   - Configurable embedding dimensions
   - Batch processing support
-
-- **FR-003**: Sentence-BERT style training
-  - Mean pooling for sentence embeddings
-  - Support for transformer-based architectures
-  - Configurable embedding dimensions
-  - Contextual word representation
 
 #### 2.1.2. Data Processing
 - **FR-004**: Text preprocessing
@@ -271,7 +264,6 @@ enum Commands {
 **Embedding Trainer**
 - Skip-gram implementation
 - CBOW implementation
-- Sentence-BERT implementation
 
 ### 3.3. Data Flow
 
@@ -329,29 +321,16 @@ maximize Σ_{t=1 to T} log P(w_t | w_{t-m}, ..., w_{t+m}; θ)
 - Similar gradient structure to Skip-gram
 - Context window parameter for training
 
-#### 4.1.3. Sentence-BERT Algorithm
-**Objective**: Generate sentence-level embeddings using transformer architecture
-
-**Mathematical Formulation**:
-```
-E(sentence) = mean(P(word_i) for word_i in sentence)
-```
-
-**Implementation Notes**:
-- Mean pooling over word embeddings
-- Contextual representation using transformer layers
-- Sentence similarity based on cosine distance
-
 ### 4.2. Performance Considerations
 
 #### 4.2.1. Memory Optimization
 - Use ndarray for efficient array operations
 - Implement lazy loading for large datasets
-- Memory-mapped file support for embeddings
+- Streaming sentence iterators for large datasets
 - Batch processing to reduce memory overhead
 
 #### 4.2.2. Computational Efficiency
-- Parallel processing with Rayon
+- Iterator-based batch processing
 - Vectorized operations using ndarray
 - Efficient similarity calculations
 - Cache-friendly data access patterns
