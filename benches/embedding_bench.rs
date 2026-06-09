@@ -28,6 +28,7 @@ fn bench_skipgram_training(c: &mut Criterion) {
         early_stopping: None,
         l2_regularization: None,
         gradient_clip: None,
+        validation_ratio: None,
     };
     
     c.bench_function("skipgram_training", |b| {
@@ -66,6 +67,7 @@ fn bench_cbow_training(c: &mut Criterion) {
         early_stopping: None,
         l2_regularization: None,
         gradient_clip: None,
+        validation_ratio: None,
     };
     
     c.bench_function("cbow_training", |b| {
@@ -104,6 +106,7 @@ fn bench_similarity_calculation(c: &mut Criterion) {
         early_stopping: None,
         l2_regularization: None,
         gradient_clip: None,
+        validation_ratio: None,
     };
     
     let mut model = EmbeddingModel::new(config, training_data.vocab.len());
@@ -143,6 +146,7 @@ fn bench_embedding_retrieval(c: &mut Criterion) {
         early_stopping: None,
         l2_regularization: None,
         gradient_clip: None,
+        validation_ratio: None,
     };
     
     let mut model = EmbeddingModel::new(config, training_data.vocab.len());
@@ -197,6 +201,7 @@ fn bench_semantic_search(c: &mut Criterion) {
         early_stopping: None,
         l2_regularization: None,
         gradient_clip: None,
+        validation_ratio: None,
     };
 
     let mut model = EmbeddingModel::new(config, training_data.vocab.len());
@@ -236,6 +241,7 @@ fn bench_analogy(c: &mut Criterion) {
         early_stopping: None,
         l2_regularization: None,
         gradient_clip: None,
+        validation_ratio: None,
     };
 
     let mut model = EmbeddingModel::new(config, training_data.vocab.len());
@@ -275,6 +281,7 @@ fn bench_lsh_query(c: &mut Criterion) {
         early_stopping: None,
         l2_regularization: None,
         gradient_clip: None,
+        validation_ratio: None,
     };
 
     let mut model = EmbeddingModel::new(config, training_data.vocab.len());
@@ -317,6 +324,7 @@ fn bench_sentence_embedding(c: &mut Criterion) {
         early_stopping: None,
         l2_regularization: None,
         gradient_clip: None,
+        validation_ratio: None,
     };
 
     let mut model = EmbeddingModel::new(config, training_data.vocab.len());

@@ -35,6 +35,7 @@
 //!     early_stopping: None,
 //!     l2_regularization: None,
 //!     gradient_clip: None,
+//!     validation_ratio: None,
 //! };
 //!
 //! let mut model = EmbeddingModel::new(config, data.vocab.len());
@@ -71,7 +72,7 @@ pub use model::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::{Array, Array1, Array2};
+    use ndarray::Array;
     use std::collections::HashMap;
 
     #[test]
@@ -120,6 +121,7 @@ mod tests {
             early_stopping: None,
             l2_regularization: None,
             gradient_clip: None,
+            validation_ratio: None,
         }
     }
 
@@ -885,5 +887,42 @@ mod tests {
         assert!(emb.is_some());
         let emb = emb.unwrap();
         assert_eq!(emb.len(), 2);
+    }
+
+    #[test]
+    fn test_create_validation_data() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let model = EmbeddingModel::new(config, data.vocab.len());
+        let val_data = model.create_validation_data(&data.sentences);
+        assert!(!val_data.positive_pairs.is_empty());
+        assert!(!val_data.negative_pairs.is_empty());
+    }
+
+    #[test]
+    fn test_evaluate_produces_metrics() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        model.train(&data).unwrap();
+
+        let val_data = model.create_validation_data(&data.sentences);
+        let metrics = model.evaluate(&data, &val_data);
+        assert!(metrics.accuracy >= 0.0 && metrics.accuracy <= 1.0);
+        assert!(metrics.precision >= 0.0 && metrics.precision <= 1.0);
+        assert!(metrics.recall >= 0.0 && metrics.recall <= 1.0);
+        assert!(metrics.f1_score >= 0.0 && metrics.f1_score <= 1.0);
+        assert!(metrics.mean_similarity >= -1.0 && metrics.mean_similarity <= 1.0);
+        assert!(metrics.embedding_quality_score >= 0.0 && metrics.embedding_quality_score <= 1.0);
+    }
+
+    #[test]
+    fn test_train_with_validation_split() {
+        let data = make_test_data();
+        let mut config = test_config(ModelType::SkipGram);
+        config.validation_ratio = Some(0.3);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        assert!(model.train(&data).is_ok());
+        assert!(model.get_embedding("cat", &data).is_some());
     }
 }

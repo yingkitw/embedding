@@ -99,6 +99,25 @@ This document specifies the requirements, architecture, and implementation detai
   - Vocabulary export
   - Model metadata export
 
+#### 2.1.5. Evaluation & Validation
+- **FR-014**: Validation framework
+  - Train/validation split with configurable ratio
+  - Automatic validation data generation from sentences
+  - Validation metrics: accuracy, precision, recall, F1 score
+  - Mean similarity and embedding quality score
+  - Optional JSON metrics export
+
+- **FR-015**: Evaluation metrics
+  - Word pair similarity evaluation with threshold-based classification
+  - Positive pair (consecutive words) vs negative pair (non-consecutive) discrimination
+  - Embedding quality scoring based on norm and variance
+  - Cosine similarity computation for all evaluation tasks
+
+- **FR-016**: Validation CLI
+  - `validate` command for evaluating saved models on held-out text
+  - Vocabulary merge for out-of-vocabulary words in validation data
+  - Metrics output to console and optional JSON file
+
 ### 2.2. Non-Functional Requirements
 
 #### 2.2.1. Performance
@@ -168,7 +187,7 @@ This document specifies the requirements, architecture, and implementation detai
 - **TC-005**: Must use standard file formats for data exchange
 
 #### 2.3.2. Business Constraints
-- **BC-001**: Open source license (MIT)
+- **BC-001**: Open source license (Apache-2.0)
 - **BC-002**: No external API dependencies
 - **BC-003**: Must work offline
 - **BC-004**: Must be self-contained single binary
@@ -220,6 +239,11 @@ pub struct TrainingConfig {
     pub context_window: usize,        // Context window size
     pub negative_samples: usize,      // Number of negative samples
     pub model_type: ModelType,        // Algorithm to use
+    pub lr_schedule: LearningRateSchedule, // Learning rate schedule
+    pub early_stopping: Option<EarlyStoppingConfig>, // Early stopping config
+    pub l2_regularization: Option<f64>, // L2 regularization coefficient
+    pub gradient_clip: Option<f32>,   // Maximum gradient norm
+    pub validation_ratio: Option<f64>, // Fraction of data for validation
 }
 ```
 
@@ -251,6 +275,8 @@ enum Commands {
     Similarity { /* Similarity query */ },
     Info { /* Model inspection */ },
     Export { /* Export functionality */ },
+    Validate { /* Validation on held-out data */ },
+    Interactive { /* Interactive query mode */ },
 }
 ```
 
@@ -274,7 +300,13 @@ Input Text → Text Processing → Vocabulary Building → Model Initialization 
 Raw text → Cleaned text → Word mappings → Random embeddings → Gradient updates → Trained model
 ```
 
-#### 3.3.2. Inference Flow
+#### 3.3.2. Validation Flow
+```
+Trained Model + Validation Text → Text Processing → Vocabulary Merge →
+    Validation Pair Generation → Similarity Evaluation → Metrics Output
+```
+
+#### 3.3.3. Inference Flow
 ```
 Query Words → Vocabulary lookup → Embedding retrieval → Similarity calculation → Results
     ↓              ↓                   ↓                  ↓                ↓
@@ -461,7 +493,7 @@ pub enum TrainingError {
 
 ---
 
-**Specification Version**: 1.0  
-**Last Updated**: 2026-06-09  
+**Specification Version**: 1.1  
+**Last Updated**: 2026-06-10  
 **Review Date**: Quarterly  
 **Approvals**: Technical Lead, Project Manager

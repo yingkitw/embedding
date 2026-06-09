@@ -183,41 +183,57 @@ impl EmbeddingModel {
     
     /// Evaluates the model against synthetic validation pairs and analogies.
     pub fn evaluate(&self, data: &TrainingData, validation_data: &ValidationData) -> EvaluationMetrics {
-        let mut correct_pairs = 0;
-        let mut total_pairs = 0;
-        let mut total_similarity = 0.0;
-        let mut similarities = Vec::new();
-        
-        // Evaluate word similarity
+        let threshold = 0.5f32;
+        let mut pos_sims = Vec::new();
+        let mut neg_sims = Vec::new();
+
         for (word1, word2) in validation_data.positive_pairs.iter() {
             if let Some(sim) = self.similarity(word1, word2, data) {
-                similarities.push(sim);
-                total_similarity += sim;
-                correct_pairs += 1;
+                pos_sims.push(sim);
             }
-            total_pairs += 1;
         }
-        
+
         for (word1, word2) in validation_data.negative_pairs.iter() {
             if let Some(sim) = self.similarity(word1, word2, data) {
-                similarities.push(sim);
-                total_similarity += sim;
-                correct_pairs += 1;
+                neg_sims.push(sim);
             }
-            total_pairs += 1;
         }
-        
-        let accuracy = if total_pairs > 0 { correct_pairs as f32 / total_pairs as f32 } else { 0.0 };
-        let mean_similarity = if !similarities.is_empty() { total_similarity / similarities.len() as f32 } else { 0.0 };
-        
-        // Calculate embedding quality score based on various metrics
+
+        let mut correct = 0usize;
+        let mut total = 0usize;
+
+        for &sim in &pos_sims {
+            total += 1;
+            if sim >= threshold { correct += 1; }
+        }
+
+        for &sim in &neg_sims {
+            total += 1;
+            if sim < threshold { correct += 1; }
+        }
+
+        let accuracy = if total > 0 { correct as f32 / total as f32 } else { 0.0 };
+
+        let mean_pos = if !pos_sims.is_empty() { pos_sims.iter().sum::<f32>() / pos_sims.len() as f32 } else { 0.0 };
+        let mean_neg = if !neg_sims.is_empty() { neg_sims.iter().sum::<f32>() / neg_sims.len() as f32 } else { 0.0 };
+        let mean_similarity = (mean_pos + mean_neg) / 2.0;
+
+        // F1 score: treat positive pairs as "positive class"
+        let tp = pos_sims.iter().filter(|&&s| s >= threshold).count() as f32;
+        let fp = neg_sims.iter().filter(|&&s| s >= threshold).count() as f32;
+        let fn_ = pos_sims.iter().filter(|&&s| s < threshold).count() as f32;
+
+        let precision = if tp + fp > 0.0 { tp / (tp + fp) } else { 0.0 };
+        let recall = if tp + fn_ > 0.0 { tp / (tp + fn_) } else { 0.0 };
+        let f1 = if precision + recall > 0.0 { 2.0 * precision * recall / (precision + recall) } else { 0.0 };
+
         let embedding_quality_score = self.calculate_embedding_quality(data);
-        
+
         EvaluationMetrics {
             accuracy,
-            precision: accuracy,  // Simplified for now
-            recall: accuracy,     // Simplified for now
-            f1_score: accuracy,  // Simplified for now
+            precision,
+            recall,
+            f1_score: f1,
             mean_similarity,
             embedding_quality_score,
         }

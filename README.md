@@ -1,17 +1,16 @@
 # Embedding Trainer
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![Build Status](https://img.shields.io/badge/build-passing-green.svg)](https://github.com/yourusername/embedding-trainer)
 
-A fast and flexible Rust library and CLI tool for training word embeddings from scratch using multiple algorithms including Skip-gram, CBOW, and Sentence-BERT approaches.
+A fast and flexible Rust library and CLI tool for training word embeddings from scratch using Skip-gram and CBOW algorithms with built-in validation and evaluation.
 
 ## ✨ Features
 
 ### 🚀 **Algorithms**
 - **Skip-gram**: Predicts context words given target words
-- **CBOW**: Predicts target words given context words  
-- **Sentence-BERT**: Transformer-based sentence embeddings
+- **CBOW**: Predicts target words given context words
 
 ### 📊 **Training Features**
 - Configurable embedding dimensions
@@ -21,10 +20,11 @@ A fast and flexible Rust library and CLI tool for training word embeddings from 
 - Batch processing capabilities
 
 ### 🔧 **CLI Tools**
-- **Training**: Train embeddings from text data
+- **Training**: Train embeddings from text data with optional validation split
 - **Similarity**: Calculate semantic similarity between words
 - **Inspection**: Analyze trained models and vocabulary
-- **Export**: Save embeddings in multiple formats (text, JSON, binary)
+- **Export**: Save embeddings in multiple formats (text, JSON, binary, Word2Vec)
+- **Validate**: Evaluate a saved model on held-out validation text
 
 ### 💾 **Data Support**
 - Text file processing
@@ -58,21 +58,31 @@ cargo install --path .
 echo "the quick brown fox jumps over the lazy dog" > data.txt
 
 # Train embeddings using Skip-gram
-embedding-train train \
+embedding train \
     --input data.txt \
     --output model.json \
     --embeddings embeddings.txt \
     --dim 100 \
     --epochs 10 \
     --model-type skipgram
+
+# Train with validation split
+embedding train \
+    --input data.txt \
+    --output model.json \
+    --embeddings embeddings.txt \
+    --dim 100 \
+    --epochs 10 \
+    --validation-ratio 0.2 \
+    --validation-output metrics.json
 ```
 
 #### 2. Calculate Similarity
 
 ```bash
 # Calculate similarity between words
-embedding-train similarity "fox" "dog" \
-    --model model.json --vocab model.json
+embedding similarity fox dog \
+    --model model.json
 
 # Expected output:
 # Similarity between 'fox' and 'dog': 0.8234
@@ -82,7 +92,7 @@ embedding-train similarity "fox" "dog" \
 
 ```bash
 # View model information
-embedding-train info --model model.json --vocab model.json
+embedding info --model model.json
 
 # Shows vocabulary size, embedding dimension, training config
 ```
@@ -91,9 +101,8 @@ embedding-train info --model model.json --vocab model.json
 
 ```bash
 # Export to different formats
-embedding-train export \
+embedding export \
     --model model.json \
-    --vocab model.json \
     --output embeddings.json \
     --format json
 ```
@@ -103,20 +112,20 @@ embedding-train export \
 ### Basic Example
 
 ```rust
-use embedding_trainer::*;
+use embedding::*;
 
 fn main() -> Result<(), String> {
     // Load and prepare data
     let text = "the quick brown fox jumps over the lazy dog";
     let sentences = load_text_data(text);
     let (vocab, reverse_vocab) = build_vocab(&sentences);
-    
+
     let training_data = TrainingData {
         sentences,
         vocab,
         reverse_vocab,
     };
-    
+
     // Configure training
     let config = TrainingConfig {
         embedding_dim: 300,
@@ -126,6 +135,11 @@ fn main() -> Result<(), String> {
         context_window: 5,
         negative_samples: 5,
         model_type: ModelType::SkipGram,
+        lr_schedule: LearningRateSchedule::Constant,
+        early_stopping: None,
+        l2_regularization: None,
+        gradient_clip: None,
+        validation_ratio: None,
     };
     
     // Train model
@@ -147,24 +161,24 @@ fn main() -> Result<(), String> {
 ### Advanced Usage
 
 ```rust
-use embedding_trainer::*;
+use embedding::*;
 use std::fs;
 
 fn advanced_example() -> Result<(), String> {
     // Load large dataset with streaming
     let text = fs::read_to_string("large_dataset.txt")?;
     let sentences = load_text_data(&text);
-    
+
     // Build vocabulary with size limit
     let (vocab, reverse_vocab) = build_vocab(&sentences);
     println!("Vocabulary size: {}", vocab.len());
-    
+
     let training_data = TrainingData {
         sentences,
         vocab,
         reverse_vocab,
     };
-    
+
     // Configure advanced training parameters
     let config = TrainingConfig {
         embedding_dim: 500,
@@ -173,7 +187,12 @@ fn advanced_example() -> Result<(), String> {
         batch_size: 128,
         context_window: 10,
         negative_samples: 10,
-        model_type: ModelType::Cbow, // Use CBOW algorithm
+        model_type: ModelType::Cbow,
+        lr_schedule: LearningRateSchedule::Constant,
+        early_stopping: None,
+        l2_regularization: None,
+        gradient_clip: None,
+        validation_ratio: None,
     };
     
     // Train with multiple epochs
@@ -205,6 +224,8 @@ fn advanced_example() -> Result<(), String> {
 | `--batch-size` | Mini-batch size | 32 | 1-1000 |
 | `--window` | Context window size | 5 | 1-20 |
 | `--negative-samples` | Number of negative samples | 5 | 1-20 |
+| `--validation-ratio` | Fraction of data for validation | 0.0 | 0.0-0.5 |
+| `--validation-output` | File to write validation metrics JSON | - | - |
 
 ### Algorithm Types
 
@@ -216,13 +237,14 @@ fn advanced_example() -> Result<(), String> {
 - **`text`**: Plain text format (default)
 - **`json`**: JSON format with metadata
 - **`bin`**: Binary format using bincode
+- **`word2vec`**: Word2Vec/Gensim text format
 
 ## 📖 CLI Reference
 
 ### Training Command
 
 ```bash
-embedding-train train [OPTIONS]
+embedding train [OPTIONS]
 ```
 
 **Options:**
@@ -236,38 +258,48 @@ embedding-train train [OPTIONS]
 - `--window <SIZE>` - Context window size (default: 5)
 - `--negative-samples <COUNT>` - Negative samples (default: 5)
 - `--model-type <TYPE>` - Algorithm type (skipgram|cbow)
+- `--validation-ratio <RATIO>` - Fraction for validation (default: 0.0)
+- `--validation-output <FILE>` - Path to write validation metrics JSON
 
 ### Similarity Command
 
 ```bash
-embedding-train similarity <WORD1> <WORD2> [OPTIONS]
+embedding similarity <WORD1> <WORD2> [OPTIONS]
 ```
 
 **Options:**
 - `--model <FILE>` - Model file (required)
-- `--vocab <FILE>` - Vocabulary file (required)
 
 ### Info Command
 
 ```bash
-embedding-train info [OPTIONS]
+embedding info [OPTIONS]
 ```
 
 **Options:**
 - `--model <FILE>` - Model file (required)
-- `--vocab <FILE>` - Vocabulary file (required)
 
 ### Export Command
 
 ```bash
-embedding-train export [OPTIONS]
+embedding export [OPTIONS]
 ```
 
 **Options:**
 - `--model <FILE>` - Model file (required)
-- `--vocab <FILE>` - Vocabulary file (required)
 - `--output <FILE>` - Output file (required)
-- `--format <FORMAT>` - Export format (text|json|bin)
+- `--format <FORMAT>` - Export format (text|json|bin|word2vec)
+
+### Validate Command
+
+```bash
+embedding validate [OPTIONS]
+```
+
+**Options:**
+- `--model <FILE>` - Model file (required)
+- `--input <FILE>` - Validation text file (required)
+- `--output <FILE>` - Output metrics JSON file (optional)
 
 ## 🔍 Examples
 
@@ -284,7 +316,7 @@ horse gallops fast
 EOF
 
 # Train embeddings
-embedding-train train \
+embedding train \
     --input animals.txt \
     --output animal_model.json \
     --embeddings animal_embeddings.txt \
@@ -293,8 +325,8 @@ embedding-train train \
     --model-type skipgram
 
 # Test similarity
-embedding-train similarity "cat" "dog" \
-    --model animal_model.json --vocab animal_model.json
+embedding similarity cat dog \
+    --model animal_model.json
 ```
 
 ### Example 2: Document Embeddings
@@ -308,21 +340,22 @@ Natural language processing deals with text and speech.
 Computer vision enables computers to understand images.
 EOF
 
-# Train with CBOW
-embedding-train train \
+# Train with CBOW and validation
+embedding train \
     --input documents.txt \
     --output doc_model.json \
     --embeddings doc_embeddings.txt \
     --dim 100 \
     --epochs 15 \
-    --model-type cbow
+    --model-type cbow \
+    --validation-ratio 0.2
 ```
 
 ### Example 3: Large Dataset Processing
 
 ```bash
 # Process large file with multiple epochs
-embedding-train train \
+embedding train \
     --input large_corpus.txt \
     --output large_model.json \
     --embeddings large_embeddings.txt \
@@ -383,7 +416,6 @@ cargo test -- --verbose
 |-----------|------------|-----------|---------------|--------------|
 | Skip-gram | 10K words  | 300       | 2.3s          | 45MB         |
 | CBOW      | 10K words  | 300       | 1.8s          | 42MB         |
-| Sentence-BERT | 10K words | 300      | 3.1s          | 48MB         |
 
 ### Optimization Tips
 
@@ -416,22 +448,25 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 ## 📈 Roadmap
 
 ### Version 1.0 (Current)
-- ✅ Basic embedding algorithms
-- ✅ CLI interface
-- ✅ Model persistence
-- ✅ Similarity calculations
+- ✅ Skip-gram and CBOW algorithms
+- ✅ CLI interface with train, validate, similarity, info, export
+- ✅ Model persistence (JSON, binary, Word2Vec, ONNX, NumPy)
+- ✅ Similarity calculations and semantic search
+- ✅ Validation split and evaluation metrics (accuracy, precision, recall, F1)
+- ✅ Learning rate scheduling (constant, exponential, step, cosine)
+- ✅ Early stopping and L2 regularization
 
 ### Version 1.1 (Planned)
 - GPU acceleration
-- Advanced tokenization
-- Learning rate scheduling
-- More export formats
+- Advanced tokenization improvements
+- Cross-validation support
+- Learning curve visualization
 
 ### Version 2.0 (Future)
 - Transformer-based models
 - Multi-modal embeddings
 - Real-time training
-- Advanced evaluation metrics
+- Standard word similarity benchmarks integration
 
 ## 🐛 Troubleshooting
 
@@ -460,7 +495,7 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## 🙏 Acknowledgments
 

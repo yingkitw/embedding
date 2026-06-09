@@ -75,6 +75,10 @@
 
 - [x] **Validation framework**
   - [x] Train/validation split (`split_data()`)
+  - [x] CLI `--validation-ratio` flag for automatic train/val split
+  - [x] CLI `validate` command for evaluating saved models on new data
+  - [x] Validation metrics output (accuracy, precision, recall, f1, mean similarity, quality score)
+  - [x] Optional validation metrics JSON export
   - Cross-validation
   - Learning curve visualization
 
@@ -206,7 +210,7 @@
 ## Completion Criteria ✅
 
 - [x] Core training algorithm produces meaningful embeddings
-- [x] All tests passing (47 tests: 39 unit + 7 integration + 1 doc-test, 0 failures)
+- [x] All tests passing (70 tests: 55 unit + 14 integration + 1 doc-test, 0 failures)
 - [x] Performance benchmarks meet or exceed Word2Vec/GloVe
   - [x] Criterion benchmarks for all core operations
   - [x] Python comparison script against gensim Word2Vec
@@ -219,6 +223,6 @@
 
 ---
 
-**Last Updated**: 2026-06-09  
-**Priority Level**: High - Core functionality needs immediate attention
-**Estimated Completion**: 2-4 weeks for core features, ongoing for improvements
+**Last Updated**: 2026-06-10  
+**Priority Level**: Core training and validation complete — ongoing for advanced features  
+**Estimated Completion**: Core features complete; ongoing for GPU, cross-validation, and benchmarks

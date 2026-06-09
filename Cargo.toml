@@ -1,6 +1,6 @@
 [package]
 name = "embedding"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "A Rust library and CLI for training embeddings from scratch"
 authors = ["Ying Kit WONG"]

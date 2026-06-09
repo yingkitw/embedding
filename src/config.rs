@@ -17,6 +17,7 @@ pub struct TrainingConfig {
     pub early_stopping: Option<EarlyStoppingConfig>,
     pub l2_regularization: Option<f64>,
     pub gradient_clip: Option<f32>,
+    pub validation_ratio: Option<f64>,
 }
 
 /// Learning rate schedule variants.

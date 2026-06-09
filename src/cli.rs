@@ -38,7 +38,7 @@ pub enum Commands {
         learning_rate: f64,
 
         /// Number of training epochs
-        #[arg(short, long, default_value = "10")]
+        #[arg(long, default_value = "10")]
         epochs: usize,
 
         /// Batch size
@@ -56,6 +56,14 @@ pub enum Commands {
         /// Model type: skipgram or cbow
         #[arg(short, long, default_value = "skipgram")]
         model_type: String,
+
+        /// Validation data ratio (0.0 = no validation, 0.2 = 20% validation)
+        #[arg(long, default_value = "0.0")]
+        validation_ratio: f64,
+
+        /// Output validation metrics file path
+        #[arg(long)]
+        validation_output: Option<String>,
 
         /// Treat input as source code instead of natural language text
         #[arg(long)]
@@ -113,6 +121,21 @@ pub enum Commands {
         format: String,
     },
 
+    /// Validate a trained model against held-out data
+    Validate {
+        /// Model file path
+        #[arg(short, long)]
+        model: String,
+
+        /// Validation text file path
+        #[arg(short, long)]
+        input: String,
+
+        /// Output metrics file path
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+
     /// Train a model and enter interactive mode for queries
     Interactive {
         /// Input text file for training
@@ -163,9 +186,11 @@ pub fn run(cli: Cli) {
             window,
             negative_samples,
             model_type,
+            validation_ratio,
+            validation_output,
             code,
             language,
-        } => handle_train(input, output, embeddings, config_path, dim, learning_rate, epochs, batch_size, window, negative_samples, model_type, code, language),
+        } => handle_train(input, output, embeddings, config_path, dim, learning_rate, epochs, batch_size, window, negative_samples, model_type, validation_ratio, validation_output, code, language),
         Commands::Similarity { word1, word2, model, vocab: _vocab } => {
             handle_similarity(word1, word2, model);
         }
@@ -174,6 +199,9 @@ pub fn run(cli: Cli) {
         }
         Commands::Export { model, vocab: _vocab, output, format } => {
             handle_export(model, output, format);
+        }
+        Commands::Validate { model, input, output } => {
+            handle_validate(model, input, output);
         }
         Commands::Interactive { input, output, dim, epochs, learning_rate, window, negative_samples, model } => {
             handle_interactive(input, output, dim, epochs, learning_rate, window, negative_samples, model);

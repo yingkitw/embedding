@@ -1,5 +1,6 @@
 use crate::*;
 use indicatif::{ProgressBar, ProgressStyle};
+use rand::prelude::SliceRandom;
 use std::fs;
 use tracing::{info, error};
 
@@ -15,6 +16,8 @@ pub fn handle_train(
     window: usize,
     negative_samples: usize,
     model_type: String,
+    validation_ratio: f64,
+    validation_output: Option<String>,
     is_code: bool,
     language: String,
 ) {
@@ -40,12 +43,6 @@ pub fn handle_train(
 
     let (vocab, reverse_vocab) = build_vocab(&sentences);
     info!("Built vocabulary with {} words", vocab.len());
-
-    let training_data = TrainingData {
-        sentences,
-        vocab,
-        reverse_vocab,
-    };
 
     let model_type = match model_type.as_str() {
         "skipgram" => ModelType::SkipGram,
@@ -80,10 +77,32 @@ pub fn handle_train(
             early_stopping: None,
             l2_regularization: None,
             gradient_clip: None,
+            validation_ratio: None,
         }
     };
 
-    let mut model = EmbeddingModel::new(config.clone(), training_data.vocab.len());
+    let validation_ratio = config.validation_ratio.unwrap_or(validation_ratio);
+
+    let (train_sentences, val_sentences) = if validation_ratio > 0.0 && !sentences.is_empty() {
+        let total = sentences.len();
+        let train_size = (total as f64 * (1.0 - validation_ratio)) as usize;
+        let mut indices: Vec<usize> = (0..total).collect();
+        indices.shuffle(&mut rand::thread_rng());
+        let train: Vec<Vec<String>> = indices[..train_size].iter().map(|&i| sentences[i].clone()).collect();
+        let val: Vec<Vec<String>> = indices[train_size..].iter().map(|&i| sentences[i].clone()).collect();
+        info!("Split data: {} train, {} validation sentences", train.len(), val.len());
+        (train, val)
+    } else {
+        (sentences.clone(), Vec::new())
+    };
+
+    let training_data = TrainingData {
+        sentences: train_sentences,
+        vocab: vocab.clone(),
+        reverse_vocab: reverse_vocab.clone(),
+    };
+
+    let mut model = EmbeddingModel::new(config.clone(), vocab.len());
     info!("Training model with config: {:?}", config);
 
     let pb = ProgressBar::new(config.epochs as u64);
@@ -103,7 +122,13 @@ pub fn handle_train(
 
     pb.finish_with_message("training complete");
 
-    let model_data = serde_json::to_string(&(&model, &training_data))
+    let full_training_data = TrainingData {
+        sentences,
+        vocab,
+        reverse_vocab,
+    };
+
+    let model_data = serde_json::to_string(&(&model, &full_training_data))
         .unwrap_or_else(|_| {
             error!("Failed to serialize model");
             std::process::exit(1);
@@ -115,9 +140,39 @@ pub fn handle_train(
             std::process::exit(1);
         });
 
-    if let Err(e) = model.save_embeddings(&embeddings, &training_data) {
+    if let Err(e) = model.save_embeddings(&embeddings, &full_training_data) {
         error!("Failed to save embeddings: {}", e);
         std::process::exit(1);
+    }
+
+    if !val_sentences.is_empty() {
+        let val_data = TrainingData {
+            sentences: val_sentences,
+            vocab: full_training_data.vocab.clone(),
+            reverse_vocab: full_training_data.reverse_vocab.clone(),
+        };
+        let validation_pairs = model.create_validation_data(&val_data.sentences);
+        let metrics = model.evaluate(&val_data, &validation_pairs);
+        info!("Validation metrics: {:?}", metrics);
+        println!("\nValidation Results:");
+        println!("  Accuracy:  {:.4}", metrics.accuracy);
+        println!("  Precision: {:.4}", metrics.precision);
+        println!("  Recall:    {:.4}", metrics.recall);
+        println!("  F1 Score:  {:.4}", metrics.f1_score);
+        println!("  Mean Sim:  {:.4}", metrics.mean_similarity);
+        println!("  Quality:   {:.4}", metrics.embedding_quality_score);
+
+        if let Some(path) = validation_output {
+            let metrics_json = serde_json::to_string_pretty(&metrics).unwrap_or_else(|_| {
+                error!("Failed to serialize validation metrics");
+                std::process::exit(1);
+            });
+            fs::write(&path, metrics_json).unwrap_or_else(|_| {
+                error!("Failed to write validation metrics to: {}", path);
+                std::process::exit(1);
+            });
+            info!("Validation metrics saved to: {}", path);
+        }
     }
 
     info!("Training completed successfully!");
@@ -262,6 +317,77 @@ pub fn handle_export(model_path: String, output: String, format: String) {
     }
 }
 
+pub fn handle_validate(
+    model_path: String,
+    input: String,
+    output: Option<String>,
+) {
+    info!("Validating model: {}", model_path);
+
+    let model_data = fs::read_to_string(&model_path)
+        .unwrap_or_else(|_| {
+            error!("Failed to read model file: {}", model_path);
+            std::process::exit(1);
+        });
+
+    let (model, training_data): (EmbeddingModel, TrainingData) = serde_json::from_str(&model_data)
+        .unwrap_or_else(|_| {
+            error!("Failed to deserialize model");
+            std::process::exit(1);
+        });
+
+    let text = fs::read_to_string(&input)
+        .unwrap_or_else(|_| {
+            error!("Failed to read validation input file: {}", input);
+            std::process::exit(1);
+        });
+
+    let sentences = load_text_data(&text);
+    info!("Loaded {} validation sentences", sentences.len());
+
+    let mut val_vocab = training_data.vocab.clone();
+    let mut val_reverse = training_data.reverse_vocab.clone();
+    for sentence in &sentences {
+        for word in sentence {
+            if !val_vocab.contains_key(word.as_str()) {
+                let id = val_vocab.len();
+                val_vocab.insert(word.clone(), id);
+                val_reverse.push(word.clone());
+            }
+        }
+    }
+
+    let val_data = TrainingData {
+        sentences,
+        vocab: val_vocab,
+        reverse_vocab: val_reverse,
+    };
+
+    let validation_pairs = model.create_validation_data(&val_data.sentences);
+    let metrics = model.evaluate(&val_data, &validation_pairs);
+    info!("Validation metrics: {:?}", metrics);
+
+    println!("\nValidation Results:");
+    println!("  Accuracy:  {:.4}", metrics.accuracy);
+    println!("  Precision: {:.4}", metrics.precision);
+    println!("  Recall:    {:.4}", metrics.recall);
+    println!("  F1 Score:  {:.4}", metrics.f1_score);
+    println!("  Mean Sim:  {:.4}", metrics.mean_similarity);
+    println!("  Quality:   {:.4}", metrics.embedding_quality_score);
+
+    if let Some(path) = output {
+        let metrics_json = serde_json::to_string_pretty(&metrics).unwrap_or_else(|_| {
+            error!("Failed to serialize validation metrics");
+            std::process::exit(1);
+        });
+        fs::write(&path, metrics_json).unwrap_or_else(|_| {
+            error!("Failed to write validation metrics to: {}", path);
+            std::process::exit(1);
+        });
+        info!("Validation metrics saved to: {}", path);
+    }
+}
+
 pub fn handle_interactive(
     input: String,
     output: String,
@@ -305,6 +431,7 @@ pub fn handle_interactive(
         early_stopping: None,
         l2_regularization: None,
         gradient_clip: None,
+        validation_ratio: None,
     };
 
     let mut model = EmbeddingModel::new(config, training_data.vocab.len());

@@ -1,5 +1,5 @@
 /// Evaluation metrics for a trained embedding model.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct EvaluationMetrics {
     pub accuracy: f32,
     pub precision: f32,
@@ -10,7 +10,7 @@ pub struct EvaluationMetrics {
 }
 
 /// Synthetic validation data generated from sentences for evaluation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ValidationData {
     pub positive_pairs: Vec<(String, String)>,
     pub negative_pairs: Vec<(String, String)>,
