@@ -1,0 +1,38 @@
+# Rust build artifacts
+/target
+Cargo.lock
+**/*.rs.bk
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project-specific
+build/
+*.model
+*.embeddings
+*.bin
+*.json
+*.txt
+example_data.txt
+test_output/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Development tools
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# Documentation
+docs/_build/

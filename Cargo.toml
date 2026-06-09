@@ -1,0 +1,44 @@
+[package]
+name = "embedding"
+version = "0.1.0"
+edition = "2024"
+description = "A Rust library and CLI for training embeddings from scratch"
+authors = ["Ying Kit WONG"]
+license = "Apache-2.0"
+repository = "https://github.com/yingkitw/embedding"
+keywords = ["embedding", "machine-learning", "nlp", "vector", "ai"]
+categories = ["science", "command-line-utilities"]
+documentation = "https://docs.rs/embedding"
+homepage = "https://github.com/yingkitw/embedding"
+
+[lib]
+name = "embedding"
+path = "src/lib.rs"
+
+[[bin]]
+name = "embedding"
+path = "src/main.rs"
+
+[[bin]]
+name = "demo"
+path = "demo.rs"
+
+[dependencies]
+ndarray = "0.15"
+ndarray-rand = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+rayon = "1.8"
+rand = "0.8"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+bincode = "1.3"
+
+[dev-dependencies]
+criterion = "0.5"
+tempfile = "3.8"
+
+[[bench]]
+name = "embedding_bench"
+harness = false
