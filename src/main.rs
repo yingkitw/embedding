@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 use embedding::*;
+use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
 use tracing::{info, error};
 
@@ -102,9 +103,44 @@ enum Commands {
         #[arg(short, long)]
         output: String,
         
-        /// Export format: text, json, or bin
+        /// Export format: text, json, bin, or word2vec
         #[arg(short, long, default_value = "text")]
         format: String,
+    },
+
+    /// Train a model and enter interactive mode for queries
+    Interactive {
+        /// Input text file for training
+        #[arg(short, long)]
+        input: String,
+
+        /// Output model file path
+        #[arg(short, long, default_value = "model.json")]
+        output: String,
+
+        /// Embedding dimension
+        #[arg(short, long, default_value = "100")]
+        dim: usize,
+
+        /// Number of training epochs
+        #[arg(short, long, default_value = "10")]
+        epochs: usize,
+
+        /// Learning rate
+        #[arg(short, long, default_value = "0.025")]
+        learning_rate: f64,
+
+        /// Context window size
+        #[arg(short, long, default_value = "5")]
+        window: usize,
+
+        /// Number of negative samples
+        #[arg(short, long, default_value = "5")]
+        negative_samples: usize,
+
+        /// Model type: skipgram or cbow
+        #[arg(short, long, default_value = "skipgram")]
+        model: String,
     },
 }
 
@@ -193,11 +229,23 @@ fn main() {
             // Initialize and train model
             let mut model = EmbeddingModel::new(config.clone(), training_data.vocab.len());
             info!("Training model with config: {:?}", config);
-            
+
+            let pb = ProgressBar::new(config.epochs as u64);
+            pb.set_style(
+                ProgressStyle::default_bar()
+                    .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} epochs {msg}")
+                    .unwrap()
+                    .progress_chars("#>-")
+            );
+            pb.set_message("training...");
+
             if let Err(e) = model.train(&training_data) {
+                pb.finish_with_message("training failed");
                 error!("Training failed: {}", e);
                 std::process::exit(1);
             }
+
+            pb.finish_with_message("training complete");
             
             // Save model and embeddings
             let model_data = serde_json::to_string(&(&model, &training_data))
@@ -357,6 +405,135 @@ fn main() {
                 _ => {
                     error!("Unknown export format: {}. Use text, json, bin, or word2vec", format);
                     std::process::exit(1);
+                }
+            }
+        }
+
+        Commands::Interactive { input, output, dim, epochs, learning_rate, window, negative_samples, model } => {
+            info!("Interactive training mode");
+
+            let text = fs::read_to_string(&input)
+                .unwrap_or_else(|_| {
+                    error!("Failed to read input file: {}", input);
+                    std::process::exit(1);
+                });
+
+            let sentences = load_text_data(&text);
+            let (vocab, reverse_vocab) = build_vocab(&sentences);
+            let training_data = TrainingData { sentences, vocab, reverse_vocab };
+
+            let model_type = match model.as_str() {
+                "skipgram" => ModelType::SkipGram,
+                "cbow" => ModelType::Cbow,
+                _ => {
+                    error!("Unknown model type: {}. Use skipgram or cbow", model);
+                    std::process::exit(1);
+                }
+            };
+
+            let config = TrainingConfig {
+                embedding_dim: dim,
+                learning_rate,
+                epochs,
+                batch_size: 32,
+                context_window: window,
+                negative_samples,
+                model_type,
+                lr_schedule: LearningRateSchedule::Constant,
+                early_stopping: None,
+                l2_regularization: None,
+                dropout_rate: None,
+                gradient_clip: None,
+            };
+
+            let mut model = EmbeddingModel::new(config, training_data.vocab.len());
+            info!("Training model...");
+            if let Err(e) = model.train(&training_data) {
+                error!("Training failed: {}", e);
+                std::process::exit(1);
+            }
+
+            // Save model
+            let model_data = serde_json::to_string(&(&model, &training_data))
+                .unwrap_or_else(|_| {
+                    error!("Failed to serialize model");
+                    std::process::exit(1);
+                });
+            fs::write(&output, model_data)
+                .unwrap_or_else(|_| {
+                    error!("Failed to write model file: {}", output);
+                    std::process::exit(1);
+                });
+            info!("Model saved to: {}", output);
+
+            // Interactive loop
+            println!("\n=== Interactive Mode ===");
+            println!("Commands:");
+            println!("  sim <word1> <word2>  - Compute similarity");
+            println!("  analogy <a> <b> <c>  - Solve analogy a:b :: c:?");
+            println!("  search <word>        - Find similar words");
+            println!("  quit                 - Exit\n");
+
+            let stdin = std::io::stdin();
+            let mut stdout = std::io::stdout();
+            use std::io::Write;
+
+            loop {
+                print!("> ");
+                stdout.flush().unwrap();
+                let mut line = String::new();
+                if stdin.read_line(&mut line).is_err() {
+                    break;
+                }
+                let parts: Vec<&str> = line.trim().split_whitespace().collect();
+                if parts.is_empty() {
+                    continue;
+                }
+
+                match parts[0] {
+                    "quit" | "exit" => break,
+                    "sim" => {
+                        if parts.len() >= 3 {
+                            if let Some(sim) = model.similarity(parts[1], parts[2], &training_data) {
+                                println!("Similarity: {:.4}", sim);
+                            } else {
+                                println!("One or both words not found");
+                            }
+                        } else {
+                            println!("Usage: sim <word1> <word2>");
+                        }
+                    }
+                    "analogy" => {
+                        if parts.len() >= 4 {
+                            let results = model.analogy(parts[1], parts[2], parts[3], &training_data, 5);
+                            if results.is_empty() {
+                                println!("No results found");
+                            } else {
+                                println!("Top results:");
+                                for (word, score) in results {
+                                    println!("  {}: {:.4}", word, score);
+                                }
+                            }
+                        } else {
+                            println!("Usage: analogy <word1> <word2> <word3>");
+                        }
+                    }
+                    "search" => {
+                        if parts.len() >= 2 {
+                            let results = model.semantic_search(parts[1], &training_data, 10);
+                            if results.is_empty() {
+                                println!("No results found");
+                            } else {
+                                println!("Similar words:");
+                                for (word, score) in results {
+                                    println!("  {}: {:.4}", word, score);
+                                }
+                            }
+                        } else {
+                            println!("Usage: search <word>");
+                        }
+                    }
+                    _ => println!("Unknown command. Type 'quit' to exit."),
                 }
             }
         }

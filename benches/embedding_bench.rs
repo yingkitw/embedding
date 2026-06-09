@@ -1,6 +1,5 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use embedding_trainer::*;
-use std::time::Duration;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use embedding::*;
 
 fn bench_skipgram_training(c: &mut Criterion) {
     let sentences = vec![

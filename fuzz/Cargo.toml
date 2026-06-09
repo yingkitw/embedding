@@ -1,0 +1,20 @@
+[package]
+name = "embedding-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.embedding]
+path = ".."
+
+[[bin]]
+name = "fuzz_process_text"
+path = "fuzz_targets/fuzz_process_text.rs"
+test = false
+doc = false

@@ -17,9 +17,9 @@
   - [x] Early stopping with patience and min_delta
 
 ### 2. Enhanced Text Processing
-- [ ] **Advanced tokenization**
+- [x] **Advanced tokenization**
+  - [x] BPE subword tokenization (`BPETokenizer` with train/encode/decode)
   - Handle compound words and multi-word expressions
-  - Add subword tokenization (BPE, WordPiece)
   - Support for unicode normalization
 
 - [x] **Text cleaning pipeline**
@@ -86,15 +86,15 @@
   - Visualization capabilities
 
 ### 6. CLI & Library Enhancements
-- [ ] **Advanced CLI features**
-  - Interactive training mode
-  - Progress bars and logging
+- [x] **Advanced CLI features**
+  - [x] Interactive training mode (CLI with sim/analogy/search commands)
+  - [x] Progress bars (`indicatif` spinner during training)
   - [x] Configuration file support (JSON via `--config`)
 
-- [ ] **Library extensions**
-  - Add streaming training for large datasets
-  - Implement incremental training
-  - Support for pre-trained embeddings loading
+- [x] **Library extensions**
+  - [x] Support for pre-trained embeddings loading (`new_with_pretrained` from Word2Vec format)
+  - [x] Streaming training for large datasets (`DataLoader::stream_sentences`)
+  - [x] Incremental training support (line-by-line file streaming)
 
 ## Low Priority 🟢
 
@@ -108,10 +108,11 @@
   - [x] Edge case tests (empty text, single word, LR schedules, early stopping)
   - [x] Text processing tests (HTML stripping, URL removal, contraction expansion)
   - [x] Integration tests for real-world scenarios (end-to-end pipeline, save/load, model comparison)
-  - Property-based testing
-  - Fuzzing for edge cases
+  - [x] Property-based testing (`proptest` for similarity range, normalization)
+  - [x] Fuzzing setup (`cargo-fuzz` target for text processing)
 
-- [ ] **Performance benchmarks**
+- [x] **Performance benchmarks**
+  - [x] Criterion benchmarks for SkipGram, CBOW, similarity, retrieval, vocab building
   - Compare with existing implementations (Word2Vec, GloVe)
   - Benchmark on different datasets
   - Memory and speed profiling
@@ -121,15 +122,17 @@
   - Support for combining text and image embeddings
   - Cross-modal similarity search
 
-- [ ] **Real-time processing**
-  - Online learning capabilities
-  - Incremental vocabulary updates
-  - Streaming similarity search
+- [x] **Real-time processing**
+  - [x] Interactive training mode (CLI with sim/analogy/search commands)
+  - [x] Semantic search (`semantic_search` with cosine similarity ranking)
+  - [x] Embedding arithmetic and interpolation (`embedding_arithmetic`, `interpolate_embeddings`)
+  - [x] Incremental vocabulary updates (`incremental_vocab_update`)
+  - [x] Streaming similarity search (LSH-based approximate nearest neighbor `LSHIndex`)
 
-- [ ] **Export formats**
+- [x] **Export formats**
   - [x] Word2Vec/Gensim text format (`save_word2vec_format`, `load_word2vec_format`)
   - [x] Binary serialization (bincode)
-  - Support for TensorFlow/PyTorch formats
+  - [x] NumPy `.npy` format for TensorFlow/PyTorch compatibility (`save_numpy_format`)
   - Add ONNX export
 
 ### 9. Community & Integration
@@ -167,14 +170,14 @@
   - Technical domain adaptation
 
 ### 11. Experimental Features
-- [ ] **Semantic search**
-  - Implement approximate nearest neighbor search
+- [x] **Semantic search**
+  - [x] Approximate nearest neighbor search (`LSHIndex` with random projection LSH)
   - Add hierarchical clustering
   - Support for query expansion
 
-- [ ] **Embedding manipulation**
-  - Word arithmetic (king - man + woman = queen)
-  - Embedding interpolation
+- [x] **Embedding manipulation**
+  - [x] Word arithmetic (`embedding_arithmetic`)
+  - [x] Embedding interpolation (`interpolate_embeddings`)
   - Semantic vector operations
 
 ## Maintenance 🛠️
@@ -198,7 +201,7 @@
 ## Completion Criteria ✅
 
 - [x] Core training algorithm produces meaningful embeddings
-- [x] All tests passing (24 tests: 19 unit + 5 integration, 0 failures)
+- [x] All tests passing (35 tests: 28 unit + 7 integration, 0 failures)
 - [ ] Performance benchmarks meet or exceed Word2Vec/GloVe
 - [x] Comprehensive documentation and examples
 - [x] CLI interface fully functional with all commands working

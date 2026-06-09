@@ -190,3 +190,71 @@ fn test_learning_rate_schedule_convergence() {
         assert!(model.get_embedding("cat", &data).is_some());
     }
 }
+
+#[cfg(test)]
+mod property_tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn prop_similarity_range(word1 in "[a-z]{3,8}", word2 in "[a-z]{3,8}") {
+            let text = format!("{} {} other words here.", word1, word2);
+            let sentences = load_text_data(&text);
+            let (vocab, reverse_vocab) = build_vocab(&sentences);
+            let data = TrainingData { sentences, vocab, reverse_vocab };
+            let config = TrainingConfig {
+                embedding_dim: 8,
+                learning_rate: 0.1,
+                epochs: 2,
+                batch_size: 4,
+                context_window: 1,
+                negative_samples: 2,
+                model_type: ModelType::SkipGram,
+                lr_schedule: LearningRateSchedule::Constant,
+                early_stopping: None,
+                l2_regularization: None,
+                dropout_rate: None,
+                gradient_clip: None,
+            };
+            let mut model = EmbeddingModel::new(config, data.vocab.len());
+            model.train(&data).unwrap();
+
+            if let Some(sim) = model.similarity(&word1, &word2, &data) {
+                prop_assert!(sim >= -1.0 && sim <= 1.0, "Similarity {} out of range [-1, 1]", sim);
+            }
+        }
+
+        #[test]
+        fn prop_normalize_produces_unit_norm(word in "[a-z]{3,8}") {
+            let text = format!("{} other words here for context.", word);
+            let sentences = load_text_data(&text);
+            let (vocab, reverse_vocab) = build_vocab(&sentences);
+            let data = TrainingData { sentences, vocab, reverse_vocab };
+            let config = TrainingConfig {
+                embedding_dim: 8,
+                learning_rate: 0.1,
+                epochs: 2,
+                batch_size: 4,
+                context_window: 1,
+                negative_samples: 2,
+                model_type: ModelType::SkipGram,
+                lr_schedule: LearningRateSchedule::Constant,
+                early_stopping: None,
+                l2_regularization: None,
+                dropout_rate: None,
+                gradient_clip: None,
+            };
+            let mut model = EmbeddingModel::new(config, data.vocab.len());
+            model.train(&data).unwrap();
+            model.normalize_embeddings();
+
+            if let Some(emb) = model.get_embedding(&word, &data) {
+                let norm = emb.iter().map(|&x| x * x).sum::<f32>().sqrt();
+                if norm > 0.0 {
+                    prop_assert!((norm - 1.0).abs() < 1e-5, "Norm {} != 1.0 after normalization", norm);
+                }
+            }
+        }
+    }
+}

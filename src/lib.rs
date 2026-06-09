@@ -134,6 +134,27 @@ impl DataLoader {
         // For now, we'll just simulate the behavior
         self.load_regular(file_path)
     }
+
+    pub fn stream_sentences(&self, file_path: &str) -> Result<Box<dyn Iterator<Item = Vec<String>>>, String> {
+        use std::fs::File;
+        use std::io::{BufRead, BufReader};
+
+        let file = File::open(file_path).map_err(|e| e.to_string())?;
+        let reader = BufReader::new(file);
+        let processor = TextProcessor::default();
+
+        let iter = reader.lines().filter_map(move |line| {
+            let line = line.ok()?;
+            let sentences = processor.process_text(&line);
+            if sentences.is_empty() {
+                None
+            } else {
+                Some(sentences.into_iter().flatten().collect::<Vec<String>>())
+            }
+        });
+
+        Ok(Box::new(iter))
+    }
 }
 
 mod embeddings_serializer {
@@ -185,6 +206,50 @@ impl EmbeddingModel {
             vocab_size,
             memory_mapped: false,
         }
+    }
+
+    pub fn new_with_pretrained(
+        config: TrainingConfig,
+        vocab_size: usize,
+        data: &TrainingData,
+        pretrained_path: &str,
+    ) -> Result<Self, String> {
+        let (pretrained, pretrained_dim) = Self::load_word2vec_format(pretrained_path)?;
+        if pretrained_dim != config.embedding_dim {
+            return Err(format!(
+                "Pre-trained embedding dimension ({}) does not match config ({})",
+                pretrained_dim, config.embedding_dim
+            ));
+        }
+
+        let mut rng = rand::thread_rng();
+        let scale = 1.0 / (config.embedding_dim as f32).sqrt();
+        let mut embeddings = Array::from_shape_fn((vocab_size, config.embedding_dim), |_| {
+            rng.gen_range(-0.5..0.5) * scale
+        });
+
+        let mut loaded_count = 0;
+        for (word, word_id) in &data.vocab {
+            if let Some(pretrained_vec) = pretrained.get(word) {
+                for (i, &val) in pretrained_vec.iter().enumerate() {
+                    embeddings[[*word_id, i]] = val;
+                }
+                loaded_count += 1;
+            }
+        }
+
+        tracing::info!(
+            "Loaded {} pre-trained embeddings out of {} vocabulary words",
+            loaded_count,
+            vocab_size
+        );
+
+        Ok(Self {
+            embeddings,
+            config,
+            vocab_size,
+            memory_mapped: false,
+        })
     }
 
     pub fn train(&mut self, data: &TrainingData) -> Result<(), String> {
@@ -657,6 +722,77 @@ impl EmbeddingModel {
         Ok((embeddings, dim))
     }
 
+    pub fn save_numpy_format(&self, path: &str, data: &TrainingData) -> Result<(), String> {
+        use std::fs::File;
+        use std::io::Write;
+
+        let mut file = File::create(path).map_err(|e| e.to_string())?;
+        let rows = data.reverse_vocab.len();
+        let cols = self.config.embedding_dim;
+
+        // NumPy .npy format header (simplified version 1.0)
+        let header = format!(
+            "{{'descr': '<f4', 'fortran_order': False, 'shape': ({}, {}), }}",
+            rows, cols
+        );
+        let header_bytes = header.as_bytes();
+        let header_len = header_bytes.len();
+        let padding = (64 - (header_len + 10) % 64) % 64;
+
+        file.write_all(b"\x93NUMPY\x01\x00").map_err(|e| e.to_string())?;
+        let total_len = (header_len + padding) as u16;
+        file.write_all(&total_len.to_le_bytes()).map_err(|e| e.to_string())?;
+        file.write_all(header_bytes).map_err(|e| e.to_string())?;
+        for _ in 0..padding {
+            file.write_all(b" ").map_err(|e| e.to_string())?;
+        }
+
+        for (word_id, _) in data.reverse_vocab.iter().enumerate() {
+            let embedding = self.embeddings.row(word_id);
+            for &val in embedding.iter() {
+                file.write_all(&val.to_le_bytes()).map_err(|e| e.to_string())?;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn semantic_search(&self, query: &str, data: &TrainingData, top_k: usize) -> Vec<(String, f32)> {
+        let query_emb = match self.get_embedding(query, data) {
+            Some(e) => e,
+            None => return Vec::new(),
+        };
+
+        let mut results = Vec::new();
+        for (word_id, word) in data.reverse_vocab.iter().enumerate() {
+            if word == query {
+                continue;
+            }
+            let candidate = self.embeddings.row(word_id);
+            let dot: f32 = query_emb.iter().zip(candidate.iter()).map(|(&a, &b)| a * b).sum();
+            let norm_query = query_emb.iter().map(|&x| x * x).sum::<f32>().sqrt();
+            let norm_candidate = candidate.iter().map(|&x| x * x).sum::<f32>().sqrt();
+            if norm_query > 0.0 && norm_candidate > 0.0 {
+                results.push((word.clone(), dot / (norm_query * norm_candidate)));
+            }
+        }
+
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        results.into_iter().take(top_k).collect()
+    }
+
+    pub fn embedding_arithmetic(&self, word1: &str, word2: &str, data: &TrainingData) -> Option<Array1<f32>> {
+        let emb1 = self.get_embedding(word1, data)?;
+        let emb2 = self.get_embedding(word2, data)?;
+        Some(&emb1 - &emb2)
+    }
+
+    pub fn interpolate_embeddings(&self, word1: &str, word2: &str, data: &TrainingData, alpha: f32) -> Option<Array1<f32>> {
+        let emb1 = self.get_embedding(word1, data)?;
+        let emb2 = self.get_embedding(word2, data)?;
+        Some(&emb1 * alpha + &emb2 * (1.0 - alpha))
+    }
+
     pub fn similarity(&self, word1: &str, word2: &str, data: &TrainingData) -> Option<f32> {
         let emb1 = self.get_embedding(word1, data)?;
         let emb2 = self.get_embedding(word2, data)?;
@@ -849,6 +985,48 @@ impl EmbeddingModel {
             analogies,
         }
     }
+
+    pub fn incremental_vocab_update(
+        &mut self,
+        new_words: &[String],
+        data: &mut TrainingData,
+    ) -> Result<Vec<usize>, String> {
+        let mut added_ids = Vec::new();
+        let mut rng = rand::thread_rng();
+        let scale = 1.0 / (self.config.embedding_dim as f32).sqrt();
+
+        for word in new_words {
+            if data.vocab.contains_key(word) {
+                continue;
+            }
+            let new_id = data.vocab.len();
+            data.vocab.insert(word.clone(), new_id);
+            data.reverse_vocab.push(word.clone());
+            added_ids.push(new_id);
+        }
+
+        if added_ids.is_empty() {
+            return Ok(added_ids);
+        }
+
+        // Expand embeddings matrix with Xavier initialization for new words
+        let new_size = data.vocab.len();
+        let mut new_embeddings = Array::from_shape_fn((new_size, self.config.embedding_dim), |_| {
+            rng.gen_range(-0.5..0.5) * scale
+        });
+
+        // Copy old embeddings
+        for i in 0..self.vocab_size {
+            for j in 0..self.config.embedding_dim {
+                new_embeddings[[i, j]] = self.embeddings[[i, j]];
+            }
+        }
+
+        self.embeddings = new_embeddings;
+        self.vocab_size = new_size;
+
+        Ok(added_ids)
+    }
 }
 
 pub fn build_vocab(sentences: &[Vec<String>]) -> (HashMap<String, usize>, Vec<String>) {
@@ -867,6 +1045,101 @@ pub fn build_vocab(sentences: &[Vec<String>]) -> (HashMap<String, usize>, Vec<St
     }
     
     (vocab, reverse_vocab)
+}
+
+pub struct LSHIndex {
+    pub hash_tables: Vec<std::collections::HashMap<usize, Vec<usize>>>,
+    pub hyperplanes: Vec<Vec<Vec<f32>>>,
+    pub num_hashes: usize,
+    pub embedding_dim: usize,
+}
+
+impl LSHIndex {
+    pub fn new(num_hashes: usize, embedding_dim: usize) -> Self {
+        let mut rng = rand::thread_rng();
+        let mut hyperplanes = Vec::with_capacity(num_hashes);
+        for _ in 0..num_hashes {
+            let mut table_planes = Vec::new();
+            for _ in 0..32 {
+                let plane: Vec<f32> = (0..embedding_dim)
+                    .map(|_| rng.r#gen::<f32>() * 2.0 - 1.0)
+                    .collect();
+                table_planes.push(plane);
+            }
+            hyperplanes.push(table_planes);
+        }
+
+        let mut hash_tables = Vec::with_capacity(num_hashes);
+        for _ in 0..num_hashes {
+            hash_tables.push(std::collections::HashMap::new());
+        }
+
+        Self {
+            hash_tables,
+            hyperplanes,
+            num_hashes,
+            embedding_dim,
+        }
+    }
+
+    pub fn build(&mut self, model: &EmbeddingModel, data: &TrainingData) {
+        for (word_id, _) in data.reverse_vocab.iter().enumerate() {
+            let embedding = model.embeddings.row(word_id);
+            for table_id in 0..self.num_hashes {
+                let hash = self.compute_hash(&embedding, table_id);
+                self.hash_tables[table_id]
+                    .entry(hash)
+                    .or_insert_with(Vec::new)
+                    .push(word_id);
+            }
+        }
+    }
+
+    fn compute_hash(&self, embedding: &ndarray::ArrayView1<f32>, table_id: usize) -> usize {
+        let mut hash = 0usize;
+        for (bit_idx, plane) in self.hyperplanes[table_id].iter().enumerate() {
+            let dot: f32 = embedding.iter().zip(plane.iter()).map(|(&a, &b)| a * b).sum();
+            if dot > 0.0 {
+                hash |= 1 << bit_idx;
+            }
+        }
+        hash
+    }
+
+    pub fn query(&self, query_word: &str, model: &EmbeddingModel, data: &TrainingData, top_k: usize) -> Vec<(String, f32)> {
+        let query_emb = match model.get_embedding(query_word, data) {
+            Some(e) => e,
+            None => return Vec::new(),
+        };
+
+        let mut candidate_set = std::collections::HashSet::new();
+        for table_id in 0..self.num_hashes {
+            let hash = self.compute_hash(&query_emb.view(), table_id);
+            if let Some(bucket) = self.hash_tables[table_id].get(&hash) {
+                for &word_id in bucket {
+                    candidate_set.insert(word_id);
+                }
+            }
+        }
+
+        let mut results = Vec::new();
+        for &word_id in &candidate_set {
+            let word = &data.reverse_vocab[word_id];
+            if word == query_word {
+                continue;
+            }
+            let candidate = model.embeddings.row(word_id);
+            let dot: f32 = query_emb.iter().zip(candidate.iter()).map(|(&a, &b)| a * b).sum();
+            let norm_query = query_emb.iter().map(|&x| x * x).sum::<f32>().sqrt();
+            let norm_candidate = candidate.iter().map(|&x| x * x).sum::<f32>().sqrt();
+            if norm_query > 0.0 && norm_candidate > 0.0 {
+                results.push((word.clone(), dot / (norm_query * norm_candidate)));
+            }
+        }
+
+        results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        results.into_iter().take(top_k).collect()
+    }
 }
 
 // Helper function for sigmoid activation
@@ -1134,6 +1407,140 @@ impl TextProcessor {
         } else {
             "unknown".to_string()
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct BPETokenizer {
+    pub vocab: HashMap<String, usize>,
+    pub merges: Vec<(String, String)>,
+    pub vocab_size: usize,
+}
+
+impl Default for BPETokenizer {
+    fn default() -> Self {
+        Self {
+            vocab: HashMap::new(),
+            merges: Vec::new(),
+            vocab_size: 0,
+        }
+    }
+}
+
+impl BPETokenizer {
+    pub fn train(corpus: &[String], target_vocab_size: usize) -> Self {
+        let mut word_freqs: HashMap<Vec<String>, usize> = HashMap::new();
+
+        // Initialize: split words into characters + end-of-word marker
+        for word in corpus {
+            let cleaned = word.to_lowercase().trim().to_string();
+            if cleaned.is_empty() {
+                continue;
+            }
+            let chars: Vec<String> = cleaned.chars().map(|c| c.to_string()).collect();
+            let mut tokens = chars;
+            tokens.push("</w>".to_string());
+            *word_freqs.entry(tokens).or_insert(0) += 1;
+        }
+
+        let mut vocab: HashMap<String, usize> = HashMap::new();
+        let mut merges: Vec<(String, String)> = Vec::new();
+
+        // Build initial vocabulary from all characters
+        let mut all_tokens: Vec<String> = Vec::new();
+        for (tokens, _) in &word_freqs {
+            for token in tokens {
+                all_tokens.push(token.clone());
+            }
+        }
+        for token in all_tokens {
+            let next_id = vocab.len();
+            vocab.entry(token).or_insert(next_id);
+        }
+
+        while vocab.len() < target_vocab_size {
+            let mut pair_counts: HashMap<(String, String), usize> = HashMap::new();
+
+            for (tokens, freq) in &word_freqs {
+                for pair in tokens.windows(2) {
+                    let key = (pair[0].clone(), pair[1].clone());
+                    *pair_counts.entry(key).or_insert(0) += freq;
+                }
+            }
+
+            if pair_counts.is_empty() {
+                break;
+            }
+
+            // Find most frequent pair
+            let best_pair = pair_counts
+                .into_iter()
+                .max_by_key(|&(_, count)| count)
+                .map(|(pair, _)| pair)
+                .unwrap();
+
+            let merged = format!("{}{}", best_pair.0, best_pair.1);
+            let next_id = vocab.len();
+            vocab.insert(merged.clone(), next_id);
+            merges.push(best_pair.clone());
+
+            // Apply merge to all word representations
+            let mut new_word_freqs: HashMap<Vec<String>, usize> = HashMap::new();
+            for (tokens, freq) in word_freqs {
+                let mut new_tokens = Vec::new();
+                let mut i = 0;
+                while i < tokens.len() {
+                    if i + 1 < tokens.len()
+                        && tokens[i] == best_pair.0
+                        && tokens[i + 1] == best_pair.1
+                    {
+                        new_tokens.push(merged.clone());
+                        i += 2;
+                    } else {
+                        new_tokens.push(tokens[i].clone());
+                        i += 1;
+                    }
+                }
+                *new_word_freqs.entry(new_tokens).or_insert(0) += freq;
+            }
+            word_freqs = new_word_freqs;
+        }
+
+        let vocab_size = vocab.len();
+        Self {
+            vocab,
+            merges,
+            vocab_size,
+        }
+    }
+
+    pub fn encode(&self, text: &str) -> Vec<String> {
+        let word = text.to_lowercase();
+        let mut tokens: Vec<String> = word.chars().map(|c| c.to_string()).collect();
+        tokens.push("</w>".to_string());
+
+        for (a, b) in &self.merges {
+            let merged = format!("{}{}", a, b);
+            let mut new_tokens = Vec::new();
+            let mut i = 0;
+            while i < tokens.len() {
+                if i + 1 < tokens.len() && &tokens[i] == a && &tokens[i + 1] == b {
+                    new_tokens.push(merged.clone());
+                    i += 2;
+                } else {
+                    new_tokens.push(tokens[i].clone());
+                    i += 1;
+                }
+            }
+            tokens = new_tokens;
+        }
+
+        tokens
+    }
+
+    pub fn decode(&self, tokens: &[String]) -> String {
+        let text = tokens.join("");
+        text.replace("</w>", " ").trim().to_string()
     }
 }
 
@@ -1448,5 +1855,196 @@ mod tests {
         assert_eq!(loaded.get("dog").unwrap().len(), 8);
 
         std::fs::remove_file(path_str).ok();
+    }
+
+    #[test]
+    fn test_bpe_tokenizer() {
+        let corpus = vec![
+            "low".to_string(),
+            "lower".to_string(),
+            "lowest".to_string(),
+            "newer".to_string(),
+            "new".to_string(),
+            "widest".to_string(),
+            "wide".to_string(),
+        ];
+
+        let tokenizer = BPETokenizer::train(&corpus, 20);
+
+        // Vocab should have grown beyond initial character count
+        assert!(tokenizer.vocab.len() >= 10);
+
+        // Encode a word
+        let tokens = tokenizer.encode("lowest");
+        assert!(!tokens.is_empty());
+
+        // Decode should reconstruct the original (with end-of-word marker removed)
+        let decoded = tokenizer.decode(&tokens);
+        assert_eq!(decoded, "lowest");
+    }
+
+    #[test]
+    fn test_pretrained_embeddings_loading() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+
+        // Create a fake pre-trained embeddings file
+        let temp_path = std::env::temp_dir().join("test_pretrained.txt");
+        let path_str = temp_path.to_str().unwrap();
+
+        let mut file = std::fs::File::create(path_str).unwrap();
+        use std::io::Write;
+        writeln!(file, "{} {}", data.vocab.len(), config.embedding_dim).unwrap();
+        for (word_id, word) in data.reverse_vocab.iter().enumerate() {
+            let vals: Vec<String> = (0..config.embedding_dim)
+                .map(|i| format!("{:.6}", (word_id * 10 + i) as f32 * 0.1))
+                .collect();
+            writeln!(file, "{} {}", word, vals.join(" ")).unwrap();
+        }
+        drop(file);
+
+        // Load pre-trained embeddings
+        let model = EmbeddingModel::new_with_pretrained(
+            config,
+            data.vocab.len(),
+            &data,
+            path_str,
+        );
+        assert!(model.is_ok());
+
+        let model = model.unwrap();
+        // Verify "cat" embedding matches pre-trained values
+        let cat_emb = model.get_embedding("cat", &data).unwrap();
+        let cat_id = data.vocab.get("cat").unwrap();
+        for (i, &val) in cat_emb.iter().enumerate() {
+            let expected = (*cat_id * 10 + i) as f32 * 0.1;
+            assert!((val - expected).abs() < 1e-5, "Mismatch at index {}: got {}, expected {}", i, val, expected);
+        }
+
+        std::fs::remove_file(path_str).ok();
+    }
+
+    #[test]
+    fn test_semantic_search() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        model.train(&data).unwrap();
+
+        let results = model.semantic_search("cat", &data, 5);
+        assert!(!results.is_empty());
+        // Results should not include the query word itself
+        for (word, _) in &results {
+            assert_ne!(word, "cat");
+        }
+    }
+
+    #[test]
+    fn test_embedding_arithmetic() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config.clone(), data.vocab.len());
+        model.train(&data).unwrap();
+
+        let result = model.embedding_arithmetic("cat", "dog", &data);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().len(), config.embedding_dim);
+    }
+
+    #[test]
+    fn test_interpolate_embeddings() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config.clone(), data.vocab.len());
+        model.train(&data).unwrap();
+
+        let result = model.interpolate_embeddings("cat", "dog", &data, 0.5);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().len(), config.embedding_dim);
+    }
+
+    #[test]
+    fn test_save_numpy_format() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        model.train(&data).unwrap();
+
+        let temp_path = std::env::temp_dir().join("test_numpy.npy");
+        let path_str = temp_path.to_str().unwrap();
+
+        assert!(model.save_numpy_format(path_str, &data).is_ok());
+
+        // Verify file exists and has non-zero size
+        let metadata = std::fs::metadata(path_str).unwrap();
+        assert!(metadata.len() > 0);
+
+        std::fs::remove_file(path_str).ok();
+    }
+
+    #[test]
+    fn test_stream_sentences() {
+        use std::io::Write;
+
+        let temp_path = std::env::temp_dir().join("test_stream.txt");
+        let path_str = temp_path.to_str().unwrap();
+
+        let mut file = std::fs::File::create(path_str).unwrap();
+        writeln!(file, "the cat sat on the mat.").unwrap();
+        writeln!(file, "the dog sat on the log.").unwrap();
+        writeln!(file, "the cat chased the dog.").unwrap();
+        drop(file);
+
+        let loader = DataLoader::new(4, false, false);
+        let sentences: Vec<Vec<String>> = loader.stream_sentences(path_str).unwrap().collect();
+        assert!(!sentences.is_empty());
+        // Each line should produce tokens
+        assert!(sentences.iter().all(|s| !s.is_empty()));
+
+        std::fs::remove_file(path_str).ok();
+    }
+
+    #[test]
+    fn test_incremental_vocab_update() {
+        let mut data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config.clone(), data.vocab.len());
+        model.train(&data).unwrap();
+
+        let old_vocab_size = data.vocab.len();
+        let old_emb_rows = model.embeddings.nrows();
+
+        let new_words = vec!["elephant".to_string(), "giraffe".to_string()];
+        let added = model.incremental_vocab_update(&new_words, &mut data).unwrap();
+
+        assert_eq!(added.len(), 2);
+        assert_eq!(data.vocab.len(), old_vocab_size + 2);
+        assert_eq!(model.embeddings.nrows(), old_emb_rows + 2);
+        assert_eq!(model.embeddings.ncols(), config.embedding_dim);
+
+        // New words should be retrievable
+        assert!(model.get_embedding("elephant", &data).is_some());
+        assert!(model.get_embedding("giraffe", &data).is_some());
+        // Existing words should still work
+        assert!(model.get_embedding("cat", &data).is_some());
+    }
+
+    #[test]
+    fn test_lsh_index() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config.clone(), data.vocab.len());
+        model.train(&data).unwrap();
+
+        let mut lsh = LSHIndex::new(4, config.embedding_dim);
+        lsh.build(&model, &data);
+
+        let results = lsh.query("cat", &model, &data, 5);
+        // LSH may return empty if all hashes collide poorly on tiny vocab, but
+        // with 4 tables and 32 bits it should usually find candidates.
+        // At minimum it should not panic.
+        for (word, _) in &results {
+            assert_ne!(word, "cat");
+        }
     }
 }
