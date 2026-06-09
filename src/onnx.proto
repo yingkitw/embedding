@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package onnx;
+
+message ModelProto {
+  int64 ir_version = 1;
+  string producer_name = 2;
+  string producer_version = 3;
+  string domain = 4;
+  GraphProto graph = 5;
+  repeated OperatorSetIdProto opset_import = 6;
+}
+
+message OperatorSetIdProto {
+  string domain = 1;
+  int64 version = 2;
+}
+
+message GraphProto {
+  repeated NodeProto node = 1;
+  repeated ValueInfoProto input = 2;
+  repeated ValueInfoProto output = 3;
+  repeated TensorProto initializer = 4;
+  string name = 5;
+}
+
+message NodeProto {
+  repeated string input = 1;
+  repeated string output = 2;
+  string name = 3;
+  string op_type = 4;
+  string domain = 5;
+}
+
+enum TensorProto_DataType {
+  UNDEFINED = 0;
+  FLOAT = 1;
+  UINT8 = 2;
+  INT8 = 3;
+  UINT16 = 4;
+  INT16 = 5;
+  INT32 = 6;
+  INT64 = 7;
+  STRING = 8;
+  BOOL = 9;
+  FLOAT16 = 10;
+  DOUBLE = 11;
+  UINT32 = 12;
+  UINT64 = 13;
+  COMPLEX64 = 14;
+  COMPLEX128 = 15;
+  BFLOAT16 = 16;
+}
+
+message TensorProto {
+  repeated int64 dims = 1;
+  TensorProto_DataType data_type = 2;
+  bytes raw_data = 3;
+  string name = 4;
+}
+
+message ValueInfoProto {
+  string name = 1;
+  TypeProto type = 2;
+}
+
+message TypeProto {
+  TensorProto tensor_type = 1;
+}

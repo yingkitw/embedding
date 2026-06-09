@@ -355,8 +355,8 @@ fn main() {
                 "json" => {
                     let export_data: Vec<(String, Vec<f32>)> = training_data.reverse_vocab
                         .iter()
-                        .enumerate()
-                        .map(|(_i, word)| {
+                        
+                        .map(|word| {
                             let embedding = model.get_embedding(word, &training_data)
                                 .unwrap_or_else(|| {
                                     error!("Failed to get embedding for word: {}", word);
@@ -485,7 +485,7 @@ fn main() {
                 if stdin.read_line(&mut line).is_err() {
                     break;
                 }
-                let parts: Vec<&str> = line.trim().split_whitespace().collect();
+                let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.is_empty() {
                     continue;
                 }

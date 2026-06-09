@@ -17,8 +17,8 @@ fn main() -> Result<(), String> {
     
     // Show some vocabulary
     println!("Sample vocabulary:");
-    for i in 0..std::cmp::min(10, reverse_vocab.len()) {
-        println!("  {}: {}", i, reverse_vocab[i]);
+    for (i, word) in reverse_vocab.iter().enumerate().take(10) {
+        println!("  {}: {}", i, word);
     }
     
     let training_data = TrainingData {

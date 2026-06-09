@@ -221,7 +221,7 @@ mod property_tests {
             model.train(&data).unwrap();
 
             if let Some(sim) = model.similarity(&word1, &word2, &data) {
-                prop_assert!(sim >= -1.0 && sim <= 1.0, "Similarity {} out of range [-1, 1]", sim);
+                prop_assert!((-1.0..=1.0).contains(&sim), "Similarity {} out of range [-1, 1]", sim);
             }
         }
 
