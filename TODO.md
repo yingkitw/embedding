@@ -54,13 +54,13 @@
 ### 4. Performance & Optimization
 - [x] **GPU acceleration**
   - [x] Backend abstraction trait (`Backend`, `CpuBackend`) with pluggable architecture
-  - CUDA backend (deferred to future release)
-  - OpenCL support (deferred to future release)
-  - Batch processing already optimized via mini-batch gradient accumulation
+  - [x] wgpu compute shader backend (`GpuBackend`) with `matmul`, `dot`, `add_scaled`
+  - [x] Feature-gated via `gpu` flag; auto-falls back to CPU if no GPU available
+  - Works on Vulkan, Metal, DX12 without vendor-specific SDKs
 
 - [x] **Memory optimization**
   - [x] Streaming sentence iterator (`DataLoader::stream_sentences`)
-  - Memory-mapped files (deferred to future release)
+  - [x] Memory-mapped embedding files (`MmapEmbeddings` with `.bin` format)
   - HashMap-based vocabulary is already memory-efficient
 
 - [x] **Training optimization**
@@ -97,7 +97,14 @@
   - [x] Configuration file support (JSON via `--config`)
 
 - [x] **Library extensions**
-  - [x] Support for pre-trained embeddings loading (`new_with_pretrained` from Word2Vec format)
+  - [x] Pre-trained embeddings loading (`new_with_pretrained` from Word2Vec format)
+  - [x] `PretrainedEmbeddings` / `PretrainedLoader` with format auto-detection
+    - [x] Word2Vec text format (`.txt`)
+    - [x] Word2Vec binary format (Google `.bin`)
+    - [x] GloVe text format
+    - [x] fastText `.vec` text format
+    - [x] Memory-mapped `.bin` format
+    - [x] Cosine similarity and top-k most similar lookup on pretrained sets
   - [x] Streaming training for large datasets (`DataLoader::stream_sentences`)
   - [x] Incremental training support (line-by-line file streaming)
 
@@ -185,6 +192,64 @@
   - [x] Embedding interpolation (`interpolate_embeddings`)
   - Semantic vector operations
 
+## Future Enhancements 🚀
+
+### 13. Training Improvements
+- [ ] **Negative sampling distribution**
+  - Current: uniform random over vocabulary
+  - Target: unigram distribution raised to 3/4 power (Mikolov et al.)
+  - Benefits: rare words sampled more frequently, better representation
+- [ ] **Sub-sampling of frequent words**
+  - Word2Vec-style `P(w) = 1 - sqrt(t / f(w))` for words above threshold
+  - Benefits: faster training, better representation of rare words
+- [ ] **Learning rate warm-up**
+  - Linear warm-up for first N steps/batches before main schedule
+  - Benefits: stabler early training, especially with large batch sizes
+- [ ] **Model checkpointing**
+  - Save intermediate checkpoints every N epochs with best-validation tracking
+  - Resume training from checkpoint
+- [ ] **Multi-threaded / parallel training**
+  - Parallelize sentence processing over CPU cores (thread-local negative sampling)
+  - Async gradient updates with Hogwild-style locking
+
+### 14. Inference & Deployment
+- [ ] **INT8 / FP16 quantization**
+  - Post-training quantization for smaller model sizes (4x smaller for INT8)
+  - Quantization-aware training option
+  - Export quantized ONNX
+- [ ] **HNSW approximate nearest neighbor index**
+  - Replace LSH with Hierarchical Navigable Small World graphs
+  - Benefits: significantly higher recall at same latency, supports billion-scale
+- [ ] **Built-in benchmark datasets**
+  - Ship WordSim-353, SimLex-999, MEN, RW, SCWS as embedded TSVs
+  - `BenchmarkEvaluator::load_builtin("wordsim353")` convenience API
+- [ ] **OOV (Out-of-Vocabulary) fallback**
+  - Subword composition: average of character n-gram embeddings for unknown words
+  - FastText-style character n-gram bucket embeddings
+
+### 15. Advanced Models
+- [ ] **Contrastive sentence embeddings (SimCSE-style)**
+  - Dropout-based positive pairs + in-batch negatives
+  - Better sentence representations than simple mean-pooling
+- [ ] **Word sense disambiguation**
+  - Multiple prototype vectors per word (cluster contexts into senses)
+  - Context-aware sense selection at lookup time
+- [ ] **Streaming vocabulary building**
+  - Build vocabulary from files larger than RAM without loading all sentences
+  - Reservoir-sampling-based vocab estimation
+- [ ] **Automatic hyperparameter search**
+  - Grid search or Bayesian optimization over `dim`, `lr`, `window`, `negative_samples`
+  - Built-in cross-validation scoring as objective function
+
+### 16. Developer Experience
+- [ ] **Model comparison / diff tool**
+  - Compare two embedding files (cosine alignment, vocabulary overlap, nearest neighbor overlap)
+- [ ] **Embedding projector export**
+  - Export to TensorBoard projector format (TSV + metadata) for visualization
+- [ ] **Python bindings (PyO3)**
+  - `embedding` Python package exposing core training and inference
+  - NumPy array interop for zero-copy embedding access
+
 ## Maintenance 🛠️
 
 ### 12. Maintenance Tasks
@@ -213,7 +278,7 @@
 ## Completion Criteria ✅
 
 - [x] Core training algorithm produces meaningful embeddings
-- [x] All tests passing (97 tests: 69 unit + 25 integration + 3 doc-tests, 0 failures)
+- [x] All tests passing (114 tests: 78 unit + 31 integration + 5 doc-tests, 0 failures)
 - [x] Performance benchmarks meet or exceed Word2Vec/GloVe
   - [x] Criterion benchmarks for all core operations
   - [x] Python comparison script against gensim Word2Vec
@@ -226,6 +291,6 @@
 
 ---
 
-**Last Updated**: 2026-06-13 (v1.1 features complete)  
-**Priority Level**: Core training and validation complete — ongoing for advanced features  
-**Estimated Completion**: Core features complete; ongoing for GPU, cross-validation, and benchmarks
+**Last Updated**: 2026-06-13 (v0.1.4 published)  
+**Priority Level**: Core features complete; v2.0 research features in progress  
+**Estimated Completion**: Core features complete; enhancements in Future Enhancements section

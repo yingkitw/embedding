@@ -4,6 +4,7 @@ use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
 use crate::config::{TrainingConfig, TrainingData, ModelType};
 use crate::evaluation::{CrossValidationResult, EvaluationMetrics, TrainingHistory, ValidationData};
+use crate::mmap;
 
 /// Word embedding model with trained vector representations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,11 +55,8 @@ mod embeddings_serializer {
 impl EmbeddingModel {
     /// Creates a new embedding model with Xavier-initialized weights.
     pub fn new(config: TrainingConfig, vocab_size: usize) -> Self {
-        let mut rng = rand::thread_rng();
-        let scale = 1.0 / (config.embedding_dim as f32).sqrt();
-        let embeddings = Array::from_shape_fn((vocab_size, config.embedding_dim), |_| {
-            rng.gen_range(-0.5..0.5) * scale
-        });
+        let backend = crate::backend::best_backend();
+        let embeddings = backend.init_embeddings(vocab_size, config.embedding_dim);
 
         Self {
             embeddings,

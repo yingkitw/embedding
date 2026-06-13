@@ -1,6 +1,6 @@
 [package]
 name = "embedding"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2024"
 description = "A Rust library and CLI for training embeddings from scratch"
 authors = ["Ying Kit WONG"]
@@ -19,6 +19,10 @@ path = "src/lib.rs"
 name = "embedding"
 path = "src/main.rs"
 
+[features]
+default = []
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+
 [dependencies]
 ndarray = "0.15"
 ndarray-rand = "0.15"
@@ -33,6 +37,10 @@ indicatif = "0.17"
 prost = "0.13"
 bytes = "1.10"
 unicode-normalization = "0.1"
+memmap2 = "0.9"
+wgpu = { version = "0.20", optional = true }
+pollster = { version = "0.3", optional = true }
+bytemuck = { version = "1.14", optional = true }
 
 [build-dependencies]
 prost-build = "0.13"

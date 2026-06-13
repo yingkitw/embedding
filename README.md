@@ -72,6 +72,32 @@ cargo build --release
 cargo install --path .
 ```
 
+### GPU Acceleration (Optional)
+
+Enable GPU compute via the `gpu` feature flag. This uses [wgpu](https://github.com/gfx-rs/wgpu) compute shaders and works on Vulkan, Metal, and DX12 backends without vendor-specific SDKs.
+
+```bash
+# Build with GPU support
+cargo build --release --features gpu
+
+# Install with GPU support
+cargo install --path . --features gpu
+```
+
+When the `gpu` feature is enabled, `EmbeddingModel::new()` automatically selects the best available backend (GPU if present, otherwise CPU). You can also explicitly create a GPU backend:
+
+```rust
+use embedding::backend::{GpuBackend, Backend};
+
+// Attempt GPU initialization; fails gracefully if no GPU is available
+if let Ok(gpu) = GpuBackend::new() {
+    println!("Using {} backend", gpu.name());
+    let embeddings = gpu.init_embeddings(1000, 300);
+}
+```
+
+> **Note:** GPU operations have CPU-GPU transfer overhead. For small models the CPU backend may still be faster. GPU acceleration shines with large batch matrix multiplications (`matmul`).
+
 ### Basic Usage
 
 #### 1. Train Your First Embeddings
@@ -464,7 +490,7 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 | **Algorithms** | Skip-gram, CBOW, Transformer | Word2Vec, FastText, GloVe, LSI, LDA | BERT, RoBERTa, DistilBERT | Skip-gram, CBOW + subwords |
 | **WordPiece tokenization** | ✅ | ❌ | ✅ | ❌ |
 | **BPE tokenization** | ✅ | ❌ | ✅ | ❌ |
-| **GPU acceleration** | 🔶 (trait defined, CPU only) | ❌ | ✅ (via ONNX / tch) | ✅ |
+| **GPU acceleration** | ✅ (wgpu compute shaders, optional) | ❌ | ✅ (via ONNX / tch) | ✅ |
 | **Cross-validation** | ✅ (k-fold) | ❌ | ❌ | ❌ |
 | **Learning curves** | ✅ (per-epoch JSON export) | ❌ | ❌ | ❌ |
 | **Benchmark evaluation** | ✅ (Spearman correlation) | ✅ (similarity tasks) | ❌ | ✅ |
@@ -473,15 +499,15 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 | **Multi-modal fusion** | ✅ (4 fusion strategies) | ❌ | ❌ | ❌ |
 | **CLI tool** | ✅ (train, validate, search, export) | ❌ | ❌ | ✅ |
 | **Export formats** | JSON, binary, Word2Vec, ONNX, NumPy | Word2Vec, Gensim native | ONNX | `.vec`, `.bin` |
-| **Memory mapping** | ❌ | ✅ | ❌ | ✅ |
-| **Pre-trained models** | 🔶 (load Word2Vec format) | ✅ (many built-in) | ✅ (Hugging Face) | ✅ |
+| **Memory mapping** | ✅ (binary format) | ✅ | ❌ | ✅ |
+| **Pre-trained models** | ✅ (Word2Vec text/binary, GloVe, fastText, mmap .bin) | ✅ (many built-in) | ✅ (Hugging Face) | ✅ |
 | **Sentence embeddings** | ✅ (mean pooling) | ✅ (Doc2Vec) | ✅ (BERT pooling) | ❌ |
 | **Speed** | ⚡ Fast (Rust native) | 🐌 Python overhead | ⚡ Fast (Rust native) | ⚡ Fast (C++) |
 | **Zero dependencies for inference** | ✅ (after training) | ❌ (Gensim + NumPy + SciPy) | ❌ (ONNX / torch) | ✅ (`.vec` format) |
 
 > **Legend**: ✅ = Supported | ❌ = Not supported | 🔶 = Partial / planned
 
-## �🐛 Troubleshooting
+## �� Troubleshooting
 
 ### Common Issues
 

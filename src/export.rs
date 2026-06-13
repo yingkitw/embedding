@@ -4,6 +4,7 @@ use std::io::{BufRead, BufReader};
 use prost::Message;
 use crate::{EmbeddingModel, TrainingData};
 use crate::onnx::*;
+use crate::mmap;
 
 impl EmbeddingModel {
     /// Saves embeddings as a JSON file.
@@ -190,5 +191,19 @@ impl EmbeddingModel {
         file.write_all(&buf).map_err(|e| e.to_string())?;
 
         Ok(())
+    }
+
+    /// Saves embeddings in a memory-mappable binary format.
+    pub fn save_mmapable_format(&self, path: &str, data: &TrainingData) -> Result<(), String> {
+        let words: Vec<String> = data.reverse_vocab.clone();
+        let embeddings: Vec<Vec<f32>> = (0..words.len())
+            .map(|i| self.embeddings.row(i).to_vec())
+            .collect();
+        mmap::save_mmapable_format(path, &words, &embeddings)
+    }
+
+    /// Loads a memory-mapped embedding file for read-only access.
+    pub fn load_mmap(path: &str) -> Result<mmap::MmapEmbeddings, String> {
+        mmap::MmapEmbeddings::open(path)
     }
 }

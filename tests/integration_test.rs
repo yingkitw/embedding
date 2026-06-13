@@ -619,3 +619,144 @@ fn test_cpu_backend_operations() {
     backend.add_scaled(&mut c, &b, 2.0);
     assert_eq!(c.to_vec(), vec![9.0, 12.0, 15.0]);
 }
+
+#[test]
+fn test_mmap_embeddings_save_and_load() {
+    let data = make_test_data();
+    let config = test_config(ModelType::SkipGram).with_epochs(2);
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data).unwrap();
+
+    let temp = std::env::temp_dir().join("integration_mmap.bin");
+    let path = temp.to_str().unwrap();
+
+    model.save_mmapable_format(path, &data).unwrap();
+    let mmap = EmbeddingModel::load_mmap(path).unwrap();
+
+    assert_eq!(mmap.vocab_size(), data.vocab.len());
+    assert_eq!(mmap.dim(), model.config.embedding_dim);
+
+    let cat_id = data.vocab["cat"];
+    let expected: Vec<f32> = model.embeddings.row(cat_id).to_vec();
+    assert_eq!(mmap.get("cat").unwrap(), expected);
+
+    let mut count = 0;
+    for (word, emb) in mmap.iter() {
+        assert!(!word.is_empty());
+        assert_eq!(emb.len(), model.config.embedding_dim);
+        count += 1;
+    }
+    assert_eq!(count, data.vocab.len());
+
+    assert!(mmap.get("nonexistent").is_none());
+
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_pretrained_loader_word2vec_text_auto() {
+    let temp = std::env::temp_dir().join("integration_pretrained_w2v.txt");
+    let path = temp.to_str().unwrap();
+
+    std::fs::write(
+        path,
+        "3 4\ncat 0.1 0.2 0.3 0.4\ndog 0.5 0.6 0.7 0.8\nfish 0.9 0.0 0.1 0.2\n",
+    )
+    .unwrap();
+
+    let emb = PretrainedLoader::auto(path).unwrap();
+    assert_eq!(emb.dim(), 4);
+    assert_eq!(emb.vocab_size(), 3);
+    assert!(emb.contains("cat"));
+    assert!(emb.contains("dog"));
+    assert!(!emb.contains("elephant"));
+
+    let cat = emb.get("cat").unwrap();
+    assert_eq!(cat.len(), 4);
+    assert!((cat[0] - 0.1).abs() < 1e-6);
+
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_pretrained_embeddings_similarity_and_most_similar() {
+    let mut emb = PretrainedEmbeddings::new(3);
+    emb.insert("a".to_string(), vec![1.0, 0.0, 0.0]);
+    emb.insert("b".to_string(), vec![0.0, 1.0, 0.0]);
+    emb.insert("c".to_string(), vec![1.0, 0.0, 0.0]);
+
+    let sim_ab = emb.similarity("a", "b").unwrap();
+    assert!(sim_ab.abs() < 1e-5);
+
+    let sim_ac = emb.similarity("a", "c").unwrap();
+    assert!((sim_ac - 1.0).abs() < 1e-5);
+
+    assert!(emb.similarity("a", "missing").is_none());
+
+    let similar = emb.most_similar("a", 1);
+    assert_eq!(similar.len(), 1);
+    assert_eq!(similar[0].0, "c");
+}
+
+#[test]
+fn test_pretrained_loader_glove_format_explicit() {
+    let temp = std::env::temp_dir().join("integration_pretrained_glove.txt");
+    let path = temp.to_str().unwrap();
+
+    std::fs::write(path, "2 3\nhello 0.1 0.2 0.3\nworld 0.4 0.5 0.6\n").unwrap();
+
+    let emb = PretrainedLoader::with_format(path, embedding::pretrained::PretrainedFormat::GloVe)
+        .unwrap();
+    assert_eq!(emb.dim(), 3);
+    assert_eq!(emb.vocab_size(), 2);
+    assert_eq!(emb.get("hello").unwrap(), &[0.1, 0.2, 0.3]);
+
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_pretrained_init_model_from_pretrained() {
+    let temp = std::env::temp_dir().join("integration_pretrained_init.txt");
+    let path = temp.to_str().unwrap();
+
+    std::fs::write(
+        path,
+        "3 8\ncat 0.1 0.1 0.1 0.1 0.1 0.1 0.1 0.1\ndog 0.2 0.2 0.2 0.2 0.2 0.2 0.2 0.2\nthe 0.3 0.3 0.3 0.3 0.3 0.3 0.3 0.3\n",
+    )
+    .unwrap();
+
+    let data = make_test_data();
+    let config = test_config(ModelType::SkipGram);
+    let model = EmbeddingModel::new_with_pretrained(config, data.vocab.len(), &data, path).unwrap();
+
+    let cat_id = data.vocab["cat"];
+    let cat_emb = model.embeddings.row(cat_id);
+    for &v in cat_emb.iter() {
+        assert!((v - 0.1).abs() < 1e-5);
+    }
+
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_pretrained_loader_from_mmap_binary() {
+    let data = make_test_data();
+    let config = test_config(ModelType::SkipGram).with_epochs(2);
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data).unwrap();
+
+    let temp = std::env::temp_dir().join("integration_pretrained_mmap.bin");
+    let path = temp.to_str().unwrap();
+
+    model.save_mmapable_format(path, &data).unwrap();
+
+    let emb = PretrainedLoader::auto(path).unwrap();
+    assert_eq!(emb.dim(), model.config.embedding_dim);
+    assert_eq!(emb.vocab_size(), data.vocab.len());
+
+    let cat_id = data.vocab["cat"];
+    let expected: Vec<f32> = model.embeddings.row(cat_id).to_vec();
+    assert_eq!(emb.get("cat").unwrap(), expected.as_slice());
+
+    std::fs::remove_file(path).ok();
+}
