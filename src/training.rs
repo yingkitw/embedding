@@ -71,6 +71,7 @@ impl EmbeddingModel {
 
             let avg_loss = total_loss / num_updates.max(1) as f32;
             info!("Epoch {} completed. Average loss: {:.4}", epoch + 1, avg_loss);
+            self.training_history.record_epoch(epoch + 1, avg_loss, current_lr as f64);
 
             // Early stopping check
             if self.should_early_stop(epoch + 1, avg_loss, best_loss, &mut patience_counter) {
@@ -157,6 +158,7 @@ impl EmbeddingModel {
 
             let avg_loss = total_loss / num_updates.max(1) as f32;
             info!("Epoch {} completed. Average loss: {:.4}", epoch + 1, avg_loss);
+            self.training_history.record_epoch(epoch + 1, avg_loss, current_lr as f64);
 
             // Early stopping check
             if self.should_early_stop(epoch + 1, avg_loss, best_loss, &mut patience_counter) {
@@ -354,13 +356,76 @@ fn sigmoid(x: f32) -> f32 {
 fn get_negative_samples(vocab_size: usize, num_samples: usize, target_id: usize, rng: &mut rand::rngs::ThreadRng) -> Vec<usize> {
     let mut samples = Vec::new();
     let dist = Uniform::new(0, vocab_size);
-    
+
     while samples.len() < num_samples {
         let candidate = rng.sample(dist);
         if candidate != target_id && !samples.contains(&candidate) {
             samples.push(candidate);
         }
     }
-    
+
     samples
+}
+
+/// Supports real-time incremental training by updating a model with new
+/// sentences as they arrive, without requiring a full retrain.
+pub struct IncrementalTrainer;
+
+impl IncrementalTrainer {
+    /// Updates `model` by training on a batch of new sentences for a small
+    /// number of epochs. New vocabulary words are added automatically.
+    ///
+    /// Returns the updated `TrainingData` reflecting any new vocabulary.
+    pub fn update(
+        model: &mut EmbeddingModel,
+        data: &mut TrainingData,
+        new_sentences: &[Vec<String>],
+        mini_epochs: usize,
+    ) -> Result<(), String> {
+        // Update vocabulary with any new words
+        let new_words: Vec<String> = new_sentences
+            .iter()
+            .flat_map(|s| s.iter().cloned())
+            .collect::<std::collections::HashSet<String>>()
+            .into_iter()
+            .collect();
+        model.incremental_vocab_update(&new_words, data)?;
+
+        // Append new sentences to existing data
+        data.sentences.extend(new_sentences.iter().cloned());
+
+        // Temporarily reduce epochs for quick incremental update
+        let original_epochs = model.config.epochs;
+        model.config.epochs = mini_epochs;
+        model.train(data)?;
+        model.config.epochs = original_epochs;
+
+        Ok(())
+    }
+
+    /// Streams sentences from an iterator and trains the model incrementally
+    /// in micro-batches. Useful for real-time data feeds.
+    pub fn stream_train<I>(
+        model: &mut EmbeddingModel,
+        data: &mut TrainingData,
+        sentences: I,
+        batch_size: usize,
+        mini_epochs: usize,
+    ) -> Result<(), String>
+    where
+        I: Iterator<Item = Vec<String>>,
+    {
+        let mut batch = Vec::with_capacity(batch_size);
+        for sentence in sentences {
+            batch.push(sentence);
+            if batch.len() >= batch_size {
+                Self::update(model, data, &batch, mini_epochs)?;
+                batch.clear();
+            }
+        }
+        if !batch.is_empty() {
+            Self::update(model, data, &batch, mini_epochs)?;
+        }
+        Ok(())
+    }
 }

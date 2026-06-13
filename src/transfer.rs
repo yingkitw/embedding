@@ -7,9 +7,20 @@ use crate::{EmbeddingModel, TrainingData};
 pub struct MultimodalFusion {
     pub text_dim: usize,
     pub aux_dim: usize,
+    pub fused_dim: usize,
 }
 
 impl MultimodalFusion {
+    /// Creates a fusion module with the given dimensions.
+    /// `fused_dim` is the output dimension after projection.
+    pub fn new(text_dim: usize, aux_dim: usize, fused_dim: usize) -> Self {
+        Self {
+            text_dim,
+            aux_dim,
+            fused_dim,
+        }
+    }
+
     /// Concatenates a text embedding with an auxiliary vector.
     pub fn concatenate(&self, text: &Array1<f32>, aux: &Array1<f32>) -> Array1<f32> {
         let mut result = Array::zeros(self.text_dim + self.aux_dim);
@@ -26,6 +37,56 @@ impl MultimodalFusion {
         }
         let aux_weight = 1.0 - text_weight;
         Some(text * text_weight + aux * aux_weight)
+    }
+
+    /// Attention-based fusion: computes a scalar attention weight from
+    /// the dot product of text and auxiliary vectors, then blends them.
+    /// Vectors must have the same dimensionality.
+    pub fn attention_fusion(&self, text: &Array1<f32>, aux: &Array1<f32>) -> Option<Array1<f32>> {
+        if text.len() != aux.len() {
+            return None;
+        }
+        let dot: f32 = text.iter().zip(aux.iter()).map(|(&a, &b)| a * b).sum();
+        let norm_t = text.iter().map(|&x| x * x).sum::<f32>().sqrt();
+        let norm_a = aux.iter().map(|&x| x * x).sum::<f32>().sqrt();
+        if norm_t == 0.0 || norm_a == 0.0 {
+            return Some(text.clone());
+        }
+        let raw_attn = (dot / (norm_t * norm_a)).tanh();
+        let attn = 0.5 + 0.5 * raw_attn; // scale to [0, 1]
+        Some(text * attn + aux * (1.0 - attn))
+    }
+
+    /// Projects both modalities into a shared space and then averages.
+    /// Returns a vector of length `fused_dim`.
+    pub fn project_and_fuse(
+        &self,
+        text: &Array1<f32>,
+        aux: &Array1<f32>,
+        text_proj: &Array2<f32>,
+        aux_proj: &Array2<f32>,
+    ) -> Option<Array1<f32>> {
+        if text_proj.shape()[1] != self.fused_dim || aux_proj.shape()[1] != self.fused_dim {
+            return None;
+        }
+        let text_p = text.dot(text_proj);
+        let aux_p = aux.dot(aux_proj);
+        Some(&(text_p + aux_p) / 2.0)
+    }
+
+    /// Computes cross-modal cosine similarity between text and auxiliary vectors.
+    pub fn cross_modal_similarity(text: &Array1<f32>, aux: &Array1<f32>) -> f32 {
+        if text.len() != aux.len() {
+            return 0.0;
+        }
+        let dot: f32 = text.iter().zip(aux.iter()).map(|(&a, &b)| a * b).sum();
+        let norm_t = text.iter().map(|&x| x * x).sum::<f32>().sqrt();
+        let norm_a = aux.iter().map(|&x| x * x).sum::<f32>().sqrt();
+        if norm_t == 0.0 || norm_a == 0.0 {
+            0.0
+        } else {
+            dot / (norm_t * norm_a)
+        }
     }
 }
 

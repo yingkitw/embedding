@@ -19,6 +19,7 @@
 ### 2. Enhanced Text Processing
 - [x] **Advanced tokenization**
   - [x] BPE subword tokenization (`BPETokenizer` with train/encode/decode)
+  - [x] WordPiece subword tokenization (`WordPieceTokenizer` with greedy longest-match)
   - Handle compound words and multi-word expressions
   - Support for unicode normalization
 
@@ -38,8 +39,8 @@
 ### 3. Model Improvements
 - [x] **Advanced architectures**
   - [x] FastText-style character n-gram embeddings (`SubwordEmbedder`)
+  - [x] Transformer encoder with multi-head self-attention and position encoding (`TransformerEncoder`)
   - GloVe algorithm (deferred to future release)
-  - Transformer-based embeddings (deferred to future release)
 
 - [x] **Regularization techniques**
   - [x] L2 regularization (configurable via `l2_regularization`)
@@ -52,6 +53,7 @@
 
 ### 4. Performance & Optimization
 - [x] **GPU acceleration**
+  - [x] Backend abstraction trait (`Backend`, `CpuBackend`) with pluggable architecture
   - CUDA backend (deferred to future release)
   - OpenCL support (deferred to future release)
   - Batch processing already optimized via mini-batch gradient accumulation
@@ -71,7 +73,7 @@
   - [x] Loss tracking during training
   - [x] Word similarity computation
   - [x] Word analogy solver (`analogy()`)
-  - Standard word similarity benchmarks
+  - [x] Standard word similarity benchmarks (`BenchmarkEvaluator` with Spearman correlation, TSV loading)
 
 - [x] **Validation framework**
   - [x] Train/validation split (`split_data()`)
@@ -79,13 +81,13 @@
   - [x] CLI `validate` command for evaluating saved models on new data
   - [x] Validation metrics output (accuracy, precision, recall, f1, mean similarity, quality score)
   - [x] Optional validation metrics JSON export
-  - Cross-validation
-  - Learning curve visualization
+  - [x] Cross-validation (`cross_validate` with k-fold split, averaged and per-fold metrics)
+  - [x] Learning curve visualization (`TrainingHistory` with per-epoch loss/LR, JSON export)
 
 - [x] **Quality assessment**
   - [x] Embedding quality scoring (`calculate_embedding_quality()`)
-  - L2 normalization verification
-  - Cluster analysis tools
+  - [x] L2 normalization verification (`normalize_embeddings` + unit-norm tests)
+  - [x] Cluster analysis tools (`KMeansClustering` with centroid-based grouping)
   - Visualization capabilities
 
 ### 6. CLI & Library Enhancements
@@ -122,7 +124,7 @@
 
 ### 8. Additional Features
 - [x] **Multi-modal embeddings**
-  - [x] Text + auxiliary vector fusion (`MultimodalFusion` with concatenation and weighted average)
+  - [x] Text + auxiliary vector fusion (`MultimodalFusion` with concatenation, weighted average, attention fusion, projection fusion, and cross-modal similarity)
   - Cross-modal similarity search
 
 - [x] **Real-time processing**
@@ -130,6 +132,7 @@
   - [x] Semantic search (`semantic_search` with cosine similarity ranking)
   - [x] Embedding arithmetic and interpolation (`embedding_arithmetic`, `interpolate_embeddings`)
   - [x] Incremental vocabulary updates (`incremental_vocab_update`)
+  - [x] Real-time incremental training (`IncrementalTrainer::update` and `stream_train`)
   - [x] Streaming similarity search (LSH-based approximate nearest neighbor `LSHIndex`)
 
 - [x] **Export formats**
@@ -210,7 +213,7 @@
 ## Completion Criteria ✅
 
 - [x] Core training algorithm produces meaningful embeddings
-- [x] All tests passing (70 tests: 55 unit + 14 integration + 1 doc-test, 0 failures)
+- [x] All tests passing (97 tests: 69 unit + 25 integration + 3 doc-tests, 0 failures)
 - [x] Performance benchmarks meet or exceed Word2Vec/GloVe
   - [x] Criterion benchmarks for all core operations
   - [x] Python comparison script against gensim Word2Vec
@@ -223,6 +226,6 @@
 
 ---
 
-**Last Updated**: 2026-06-10  
+**Last Updated**: 2026-06-13 (v1.1 features complete)  
 **Priority Level**: Core training and validation complete — ongoing for advanced features  
 **Estimated Completion**: Core features complete; ongoing for GPU, cross-validation, and benchmarks

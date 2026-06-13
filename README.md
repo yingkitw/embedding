@@ -2,9 +2,10 @@
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)](https://www.rust-lang.org/)
-[![Build Status](https://img.shields.io/badge/build-passing-green.svg)](https://github.com/yourusername/embedding-trainer)
+[![Version](https://img.shields.io/badge/version-0.1.3-blue.svg)](https://crates.io/crates/embedding)
+[![Build Status](https://img.shields.io/badge/build-passing-green.svg)](https://github.com/yingkitw/embedding)
 
-A fast and flexible Rust library and CLI tool for training word embeddings from scratch using Skip-gram and CBOW algorithms with built-in validation and evaluation.
+A fast and flexible Rust library and CLI tool for training word embeddings from scratch using Skip-gram and CBOW algorithms with built-in validation, evaluation, and semantic search.
 
 ## ✨ Features
 
@@ -18,6 +19,12 @@ A fast and flexible Rust library and CLI tool for training word embeddings from 
 - Customizable context windows
 - Negative sampling support
 - Batch processing capabilities
+- Learning rate scheduling (constant, exponential, step, cosine)
+- Early stopping with configurable patience
+- L2 regularization and gradient clipping
+- Train/validation split with metrics export
+- Per-epoch training history / learning curves (JSON export)
+- K-fold cross-validation with averaged metrics
 
 ### 🔧 **CLI Tools**
 - **Training**: Train embeddings from text data with optional validation split
@@ -25,13 +32,29 @@ A fast and flexible Rust library and CLI tool for training word embeddings from 
 - **Inspection**: Analyze trained models and vocabulary
 - **Export**: Save embeddings in multiple formats (text, JSON, binary, Word2Vec)
 - **Validate**: Evaluate a saved model on held-out validation text
+- **Interactive**: Query trained models interactively (similarity, analogy, search)
 
-### 💾 **Data Support**
-- Text file processing
+### � **Evaluation & Analysis**
+- **Benchmarks**: Evaluate against standard word similarity benchmarks (WordSim-353, SimLex-999) with Spearman correlation
+- **Clustering**: K-means and hierarchical clustering of embeddings
+- **Cross-validation**: K-fold cross-validation with per-fold metrics
+- **Learning curves**: Per-epoch loss and learning rate tracking with JSON export
+
+### � **Data Support**
+- Text file processing with Unicode normalization
+- Source code preprocessing (Rust, Python, JavaScript, etc.)
+- BPE subword tokenization and FastText-style character n-grams
+- WordPiece subword tokenization (BERT-style)
 - Vocabulary management
 - Model persistence
-- Multiple export formats
+- Multiple export formats (JSON, binary, Word2Vec, ONNX, NumPy)
 - Streaming support for large datasets
+- Pluggable compute backend trait (CPU implemented, GPU ready)
+
+### 🤖 **Advanced Models**
+- **Transformer encoder**: Multi-head self-attention with position encoding for contextualized embeddings
+- **Multi-modal fusion**: Concatenation, weighted average, attention fusion, projection fusion, cross-modal similarity
+- **Real-time training**: Incremental updates and streaming micro-batch training without full retrain
 
 ## 🚀 Quick Start
 
@@ -39,8 +62,8 @@ A fast and flexible Rust library and CLI tool for training word embeddings from 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/embedding-trainer.git
-cd embedding-trainer
+git clone https://github.com/yingkitw/embedding.git
+cd embedding
 
 # Build the project
 cargo build --release
@@ -115,45 +138,26 @@ embedding export \
 use embedding::*;
 
 fn main() -> Result<(), String> {
-    // Load and prepare data
-    let text = "the quick brown fox jumps over the lazy dog";
-    let sentences = load_text_data(text);
-    let (vocab, reverse_vocab) = build_vocab(&sentences);
+    // Load and prepare data in one step
+    let data = TrainingData::from_text("the quick brown fox jumps over the lazy dog");
 
-    let training_data = TrainingData {
-        sentences,
-        vocab,
-        reverse_vocab,
-    };
+    // Configure training with sensible defaults and fluent setters
+    let config = TrainingConfig::new(ModelType::SkipGram)
+        .with_dim(300)
+        .with_epochs(10);
 
-    // Configure training
-    let config = TrainingConfig {
-        embedding_dim: 300,
-        learning_rate: 0.025,
-        epochs: 10,
-        batch_size: 32,
-        context_window: 5,
-        negative_samples: 5,
-        model_type: ModelType::SkipGram,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
-    
     // Train model
-    let mut model = EmbeddingModel::new(config, training_data.vocab.len());
-    model.train(&training_data)?;
-    
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data)?;
+
     // Calculate similarity
-    if let Some(similarity) = model.similarity("fox", "dog", &training_data) {
+    if let Some(similarity) = model.similarity("fox", "dog", &data) {
         println!("Similarity: {:.4}", similarity);
     }
-    
+
     // Save model
-    model.save_embeddings("embeddings.txt", &training_data)?;
-    
+    model.save_embeddings("embeddings.txt", &data)?;
+
     Ok(())
 }
 ```
@@ -162,52 +166,34 @@ fn main() -> Result<(), String> {
 
 ```rust
 use embedding::*;
-use std::fs;
 
 fn advanced_example() -> Result<(), String> {
-    // Load large dataset with streaming
-    let text = fs::read_to_string("large_dataset.txt")?;
-    let sentences = load_text_data(&text);
+    // Load data from a file in one step
+    let data = TrainingData::from_file("large_dataset.txt")?;
+    println!("Vocabulary size: {}", data.vocab.len());
 
-    // Build vocabulary with size limit
-    let (vocab, reverse_vocab) = build_vocab(&sentences);
-    println!("Vocabulary size: {}", vocab.len());
+    // Configure advanced training parameters with fluent setters
+    let config = TrainingConfig::new(ModelType::Cbow)
+        .with_dim(500)
+        .with_learning_rate(0.01)
+        .with_epochs(50)
+        .with_batch_size(128)
+        .with_window(10)
+        .with_negative_samples(10)
+        .with_validation_ratio(0.2);
 
-    let training_data = TrainingData {
-        sentences,
-        vocab,
-        reverse_vocab,
-    };
+    // Train model
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data)?;
 
-    // Configure advanced training parameters
-    let config = TrainingConfig {
-        embedding_dim: 500,
-        learning_rate: 0.01,
-        epochs: 50,
-        batch_size: 128,
-        context_window: 10,
-        negative_samples: 10,
-        model_type: ModelType::Cbow,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
-    
-    // Train with multiple epochs
-    let mut model = EmbeddingModel::new(config, training_data.vocab.len());
-    
-    // Train in chunks for large datasets
-    for epoch in 0..10 {
-        println!("Training epoch {}/10", epoch + 1);
-        model.train(&training_data)?;
-    }
-    
+    // Evaluate with cross-validation
+    let cv = model.cross_validate(&data, 5)?;
+    println!("Cross-validation accuracy: {:.4}", cv.averaged_metrics.accuracy);
+
     // Export to multiple formats
-    model.save_embeddings("embeddings.txt", &training_data)?;
+    model.save_embeddings("embeddings.txt", &data)?;
     println!("Training completed!");
-    
+
     Ok(())
 }
 ```
@@ -372,8 +358,8 @@ embedding train \
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/embedding-trainer.git
-cd embedding-trainer
+git clone https://github.com/yingkitw/embedding.git
+cd embedding
 
 # Build development version
 cargo build
@@ -456,19 +442,46 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 - ✅ Learning rate scheduling (constant, exponential, step, cosine)
 - ✅ Early stopping and L2 regularization
 
-### Version 1.1 (Planned)
-- GPU acceleration
-- Advanced tokenization improvements
-- Cross-validation support
-- Learning curve visualization
+### Version 1.1 (Current — Features Complete)
+- ✅ Backend abstraction trait for GPU acceleration (CPU implemented)
+- ✅ WordPiece subword tokenization
+- ✅ K-fold cross-validation support
+- ✅ Per-epoch training history / learning curve JSON export
+- ✅ Standard word similarity benchmark evaluation (Spearman correlation)
+- ✅ K-means clustering
+- CUDA/OpenCL backend implementation (planned)
 
-### Version 2.0 (Future)
-- Transformer-based models
-- Multi-modal embeddings
-- Real-time training
-- Standard word similarity benchmarks integration
+### Version 2.0 (Current — Features Complete)
+- ✅ Transformer encoder with multi-head self-attention and position encoding
+- ✅ Enhanced multi-modal fusion (attention fusion, projection fusion, cross-modal similarity)
+- ✅ Real-time incremental training (`IncrementalTrainer` with batch and stream modes)
 
-## 🐛 Troubleshooting
+## � Comparison with Alternatives
+
+| Feature | **embedding** (this crate) | Gensim (Python) | rust-bert | fastText |
+|---|---|---|---|---|
+| **Language** | Rust | Python | Rust | C++ / Python |
+| **Algorithms** | Skip-gram, CBOW, Transformer | Word2Vec, FastText, GloVe, LSI, LDA | BERT, RoBERTa, DistilBERT | Skip-gram, CBOW + subwords |
+| **WordPiece tokenization** | ✅ | ❌ | ✅ | ❌ |
+| **BPE tokenization** | ✅ | ❌ | ✅ | ❌ |
+| **GPU acceleration** | 🔶 (trait defined, CPU only) | ❌ | ✅ (via ONNX / tch) | ✅ |
+| **Cross-validation** | ✅ (k-fold) | ❌ | ❌ | ❌ |
+| **Learning curves** | ✅ (per-epoch JSON export) | ❌ | ❌ | ❌ |
+| **Benchmark evaluation** | ✅ (Spearman correlation) | ✅ (similarity tasks) | ❌ | ✅ |
+| **K-means clustering** | ✅ | ❌ | ❌ | ❌ |
+| **Incremental training** | ✅ (stream / batch updates) | ❌ (requires retrain) | ❌ | ❌ |
+| **Multi-modal fusion** | ✅ (4 fusion strategies) | ❌ | ❌ | ❌ |
+| **CLI tool** | ✅ (train, validate, search, export) | ❌ | ❌ | ✅ |
+| **Export formats** | JSON, binary, Word2Vec, ONNX, NumPy | Word2Vec, Gensim native | ONNX | `.vec`, `.bin` |
+| **Memory mapping** | ❌ | ✅ | ❌ | ✅ |
+| **Pre-trained models** | 🔶 (load Word2Vec format) | ✅ (many built-in) | ✅ (Hugging Face) | ✅ |
+| **Sentence embeddings** | ✅ (mean pooling) | ✅ (Doc2Vec) | ✅ (BERT pooling) | ❌ |
+| **Speed** | ⚡ Fast (Rust native) | 🐌 Python overhead | ⚡ Fast (Rust native) | ⚡ Fast (C++) |
+| **Zero dependencies for inference** | ✅ (after training) | ❌ (Gensim + NumPy + SciPy) | ❌ (ONNX / torch) | ✅ (`.vec` format) |
+
+> **Legend**: ✅ = Supported | ❌ = Not supported | 🔶 = Partial / planned
+
+## �🐛 Troubleshooting
 
 ### Common Issues
 
@@ -503,16 +516,3 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 - Built with [ndarray](https://github.com/rust-ndarray/ndarray) for numerical computing
 - CLI powered by [clap](https://github.com/clap-rs/clap)
 - Serialization using [serde](https://serde.rs/)
-
-## 📞 Support
-
-- 📧 **Email**: your.email@example.com
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/yourusername/embedding-trainer/discussions)
-- 🐛 **Issues**: [GitHub Issues](https://github.com/yourusername/embedding-trainer/issues)
-- 📖 **Documentation**: [docs.rs/embedding-trainer](https://docs.rs/embedding-trainer)
-
----
-
-**Made with ❤️ by the Embedding Trainer Team**
-
-*For the latest updates, check our [GitHub repository](https://github.com/yourusername/embedding-trainer)*

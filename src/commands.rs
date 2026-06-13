@@ -65,20 +65,13 @@ pub fn handle_train(
                 std::process::exit(1);
             })
     } else {
-        TrainingConfig {
-            embedding_dim: dim,
-            learning_rate,
-            epochs,
-            batch_size,
-            context_window: window,
-            negative_samples,
-            model_type,
-            lr_schedule: LearningRateSchedule::Constant,
-            early_stopping: None,
-            l2_regularization: None,
-            gradient_clip: None,
-            validation_ratio: None,
-        }
+        TrainingConfig::new(model_type)
+            .with_dim(dim)
+            .with_learning_rate(learning_rate)
+            .with_epochs(epochs)
+            .with_batch_size(batch_size)
+            .with_window(window)
+            .with_negative_samples(negative_samples)
     };
 
     let validation_ratio = config.validation_ratio.unwrap_or(validation_ratio);
@@ -419,20 +412,12 @@ pub fn handle_interactive(
         }
     };
 
-    let config = TrainingConfig {
-        embedding_dim: dim,
-        learning_rate,
-        epochs,
-        batch_size: 32,
-        context_window: window,
-        negative_samples,
-        model_type,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
+    let config = TrainingConfig::new(model_type)
+        .with_dim(dim)
+        .with_learning_rate(learning_rate)
+        .with_epochs(epochs)
+        .with_window(window)
+        .with_negative_samples(negative_samples);
 
     let mut model = EmbeddingModel::new(config, training_data.vocab.len());
     info!("Training model...");

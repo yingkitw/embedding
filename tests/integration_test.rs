@@ -7,23 +7,19 @@ fn make_test_data() -> TrainingData {
     TrainingData { sentences, vocab, reverse_vocab }
 }
 
+fn test_config(model_type: ModelType) -> TrainingConfig {
+    TrainingConfig::new(model_type)
+        .with_dim(8)
+        .with_learning_rate(0.1)
+        .with_batch_size(4)
+        .with_window(1)
+        .with_negative_samples(2)
+}
+
 #[test]
 fn test_end_to_end_training_pipeline() {
     let data = make_test_data();
-    let config = TrainingConfig {
-        embedding_dim: 8,
-        learning_rate: 0.1,
-        epochs: 3,
-        batch_size: 4,
-        context_window: 1,
-        negative_samples: 2,
-        model_type: ModelType::SkipGram,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
+    let config = test_config(ModelType::SkipGram).with_epochs(3);
 
     let mut model = EmbeddingModel::new(config, data.vocab.len());
     model.train(&data).expect("Training should succeed");
@@ -49,20 +45,7 @@ fn test_end_to_end_training_pipeline() {
 #[test]
 fn test_save_and_load_embeddings() {
     let data = make_test_data();
-    let config = TrainingConfig {
-        embedding_dim: 8,
-        learning_rate: 0.1,
-        epochs: 2,
-        batch_size: 4,
-        context_window: 1,
-        negative_samples: 2,
-        model_type: ModelType::Cbow,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
+    let config = test_config(ModelType::Cbow).with_epochs(2);
 
     let mut model = EmbeddingModel::new(config.clone(), data.vocab.len());
     model.train(&data).unwrap();
@@ -117,25 +100,8 @@ fn test_text_processing_pipeline() {
 fn test_cbow_and_skipgram_produce_different_results() {
     let data = make_test_data();
 
-    let config_sg = TrainingConfig {
-        embedding_dim: 8,
-        learning_rate: 0.1,
-        epochs: 3,
-        batch_size: 4,
-        context_window: 1,
-        negative_samples: 2,
-        model_type: ModelType::SkipGram,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
-
-    let config_cbow = TrainingConfig {
-        model_type: ModelType::Cbow,
-        ..config_sg.clone()
-    };
+    let config_sg = test_config(ModelType::SkipGram).with_epochs(3);
+    let config_cbow = test_config(ModelType::Cbow).with_epochs(3);
 
     let mut model_sg = EmbeddingModel::new(config_sg, data.vocab.len());
     model_sg.train(&data).unwrap();
@@ -171,20 +137,9 @@ fn test_learning_rate_schedule_convergence() {
     ];
 
     for schedule in schedules {
-        let config = TrainingConfig {
-            embedding_dim: 8,
-            learning_rate: 0.1,
-            epochs: 2,
-            batch_size: 4,
-            context_window: 1,
-            negative_samples: 2,
-            model_type: ModelType::SkipGram,
-            lr_schedule: schedule,
-            early_stopping: None,
-            l2_regularization: None,
-            gradient_clip: None,
-            validation_ratio: None,
-        };
+        let config = test_config(ModelType::SkipGram)
+            .with_epochs(2)
+            .with_lr_schedule(schedule);
 
         let mut model = EmbeddingModel::new(config, data.vocab.len());
         assert!(model.train(&data).is_ok());
@@ -195,20 +150,7 @@ fn test_learning_rate_schedule_convergence() {
 #[test]
 fn test_evaluation_metrics_bounds() {
     let data = make_test_data();
-    let config = TrainingConfig {
-        embedding_dim: 8,
-        learning_rate: 0.1,
-        epochs: 3,
-        batch_size: 4,
-        context_window: 1,
-        negative_samples: 2,
-        model_type: ModelType::SkipGram,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
+    let config = test_config(ModelType::SkipGram).with_epochs(3);
 
     let mut model = EmbeddingModel::new(config, data.vocab.len());
     model.train(&data).unwrap();
@@ -228,20 +170,7 @@ fn test_evaluation_metrics_bounds() {
 #[test]
 fn test_evaluate_empty_validation() {
     let data = make_test_data();
-    let config = TrainingConfig {
-        embedding_dim: 8,
-        learning_rate: 0.1,
-        epochs: 2,
-        batch_size: 4,
-        context_window: 1,
-        negative_samples: 2,
-        model_type: ModelType::SkipGram,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
+    let config = test_config(ModelType::SkipGram).with_epochs(2);
 
     let mut model = EmbeddingModel::new(config, data.vocab.len());
     model.train(&data).unwrap();
@@ -262,20 +191,9 @@ fn test_evaluate_empty_validation() {
 #[test]
 fn test_train_with_validation_ratio_config() {
     let data = make_test_data();
-    let mut config = TrainingConfig {
-        embedding_dim: 8,
-        learning_rate: 0.1,
-        epochs: 2,
-        batch_size: 4,
-        context_window: 1,
-        negative_samples: 2,
-        model_type: ModelType::SkipGram,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: Some(0.3),
-    };
+    let mut config = test_config(ModelType::SkipGram)
+        .with_epochs(2)
+        .with_validation_ratio(0.3);
 
     let mut model = EmbeddingModel::new(config.clone(), data.vocab.len());
     model.train(&data).unwrap();
@@ -303,20 +221,7 @@ fn test_train_with_validation_ratio_config() {
 #[test]
 fn test_create_validation_data_edge_cases() {
     let data = make_test_data();
-    let config = TrainingConfig {
-        embedding_dim: 8,
-        learning_rate: 0.1,
-        epochs: 2,
-        batch_size: 4,
-        context_window: 1,
-        negative_samples: 2,
-        model_type: ModelType::SkipGram,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
+    let config = test_config(ModelType::SkipGram).with_epochs(2);
 
     let model = EmbeddingModel::new(config, data.vocab.len());
 
@@ -343,20 +248,7 @@ fn test_create_validation_data_edge_cases() {
 #[test]
 fn test_split_data_produces_correct_sizes() {
     let data = make_test_data();
-    let config = TrainingConfig {
-        embedding_dim: 8,
-        learning_rate: 0.1,
-        epochs: 2,
-        batch_size: 4,
-        context_window: 1,
-        negative_samples: 2,
-        model_type: ModelType::SkipGram,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
+    let config = test_config(ModelType::SkipGram).with_epochs(2);
 
     let model = EmbeddingModel::new(config, data.vocab.len());
 
@@ -374,20 +266,7 @@ fn test_split_data_produces_correct_sizes() {
 #[test]
 fn test_validation_metrics_json_roundtrip() {
     let data = make_test_data();
-    let config = TrainingConfig {
-        embedding_dim: 8,
-        learning_rate: 0.1,
-        epochs: 2,
-        batch_size: 4,
-        context_window: 1,
-        negative_samples: 2,
-        model_type: ModelType::SkipGram,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
+    let config = test_config(ModelType::SkipGram).with_epochs(2);
 
     let mut model = EmbeddingModel::new(config, data.vocab.len());
     model.train(&data).unwrap();
@@ -408,20 +287,7 @@ fn test_validation_metrics_json_roundtrip() {
 #[test]
 fn test_cbow_validation_metrics() {
     let data = make_test_data();
-    let config = TrainingConfig {
-        embedding_dim: 8,
-        learning_rate: 0.1,
-        epochs: 3,
-        batch_size: 4,
-        context_window: 1,
-        negative_samples: 2,
-        model_type: ModelType::Cbow,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
+    let config = test_config(ModelType::Cbow).with_epochs(3);
 
     let mut model = EmbeddingModel::new(config, data.vocab.len());
     model.train(&data).unwrap();
@@ -444,20 +310,7 @@ mod property_tests {
             let sentences = load_text_data(&text);
             let (vocab, reverse_vocab) = build_vocab(&sentences);
             let data = TrainingData { sentences, vocab, reverse_vocab };
-            let config = TrainingConfig {
-                embedding_dim: 8,
-                learning_rate: 0.1,
-                epochs: 2,
-                batch_size: 4,
-                context_window: 1,
-                negative_samples: 2,
-                model_type: ModelType::SkipGram,
-                lr_schedule: LearningRateSchedule::Constant,
-                early_stopping: None,
-                l2_regularization: None,
-                gradient_clip: None,
-                validation_ratio: None,
-            };
+            let config = test_config(ModelType::SkipGram).with_epochs(2);
             let mut model = EmbeddingModel::new(config, data.vocab.len());
             model.train(&data).unwrap();
 
@@ -472,20 +325,7 @@ mod property_tests {
             let sentences = load_text_data(&text);
             let (vocab, reverse_vocab) = build_vocab(&sentences);
             let data = TrainingData { sentences, vocab, reverse_vocab };
-            let config = TrainingConfig {
-                embedding_dim: 8,
-                learning_rate: 0.1,
-                epochs: 2,
-                batch_size: 4,
-                context_window: 1,
-                negative_samples: 2,
-                model_type: ModelType::SkipGram,
-                lr_schedule: LearningRateSchedule::Constant,
-                early_stopping: None,
-                l2_regularization: None,
-                gradient_clip: None,
-                validation_ratio: None,
-            };
+            let config = test_config(ModelType::SkipGram).with_epochs(2);
             let mut model = EmbeddingModel::new(config, data.vocab.len());
             model.train(&data).unwrap();
             model.normalize_embeddings();
@@ -498,4 +338,284 @@ mod property_tests {
             }
         }
     }
+}
+
+#[test]
+fn test_transformer_encoder_shapes_and_variance() {
+    let encoder = TransformerEncoder::new(2, 2, 8, 16, 10);
+
+    // All-zeros input should produce non-zero output due to position encoding + weights
+    let zeros = ndarray::Array2::zeros((4, 8));
+    let encoded = encoder.encode_sequence(&zeros);
+    assert_eq!(encoded.nrows(), 4);
+    assert_eq!(encoded.ncols(), 8);
+
+    // Single token
+    let single = ndarray::Array2::zeros((1, 8));
+    let encoded_single = encoder.encode_sequence(&single);
+    assert_eq!(encoded_single.nrows(), 1);
+    assert_eq!(encoded_single.ncols(), 8);
+
+    // Position encoding produces different values for different positions
+    let pos_0 = encoder.position_encoding(3);
+    assert_eq!(pos_0.nrows(), 3);
+    assert_eq!(pos_0.ncols(), 8);
+
+    // Position 0 and position 1 should differ
+    let mut diff_found = false;
+    for c in 0..8 {
+        if (pos_0[[0, c]] - pos_0[[1, c]]).abs() > 1e-6 {
+            diff_found = true;
+            break;
+        }
+    }
+    assert!(diff_found, "Position encoding should vary across positions");
+}
+
+#[test]
+fn test_benchmark_evaluator_load_and_correlation() {
+    let tsv = "cat\tdog\t0.8\ncat\tmat\t0.2\ndog\tlog\t0.1\nfox\tdog\t0.5\n";
+    let pairs = BenchmarkEvaluator::load_from_tsv(tsv);
+    assert_eq!(pairs.len(), 4);
+    assert_eq!(pairs[0].word1, "cat");
+    assert_eq!(pairs[0].word2, "dog");
+    assert!((pairs[0].score - 0.8).abs() < 1e-6);
+
+    let data = make_test_data();
+    let config = test_config(ModelType::SkipGram).with_epochs(3);
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data).unwrap();
+
+    let result = BenchmarkEvaluator::evaluate(&model, &data, &pairs);
+    assert_eq!(result.num_pairs, 4);
+    assert!(result.num_evaluated <= 4);
+    assert!(result.correlation >= -1.0 && result.correlation <= 1.0);
+    assert_eq!(result.model_scores.len(), result.num_evaluated);
+    assert_eq!(result.human_scores.len(), result.num_evaluated);
+}
+
+#[test]
+fn test_training_history_json_export() {
+    let data = make_test_data();
+    let config = test_config(ModelType::SkipGram).with_epochs(3);
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data).unwrap();
+
+    assert!(!model.training_history.epochs.is_empty());
+    let json = model.training_history.to_json().unwrap();
+
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert!(parsed.get("epochs").is_some());
+
+    let epochs = parsed["epochs"].as_array().unwrap();
+    assert!(!epochs.is_empty());
+    assert!(epochs[0].get("epoch").is_some());
+    assert!(epochs[0].get("loss").is_some());
+    assert!(epochs[0].get("learning_rate").is_some());
+
+    let avg_loss = model.training_history.average_loss();
+    assert!(avg_loss >= 0.0);
+    let final_loss = model.training_history.final_loss();
+    assert!(final_loss >= 0.0);
+}
+
+#[test]
+fn test_incremental_trainer_end_to_end() {
+    let mut data = TrainingData::from_text("the cat sat on the mat");
+    let config = TrainingConfig::new(ModelType::SkipGram)
+        .with_dim(4)
+        .with_epochs(1)
+        .with_batch_size(2)
+        .with_window(1)
+        .with_negative_samples(1);
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data).unwrap();
+
+    let original_vocab = data.vocab.len();
+    let new_sentences = vec![
+        vec!["newword".to_string(), "cat".to_string()],
+    ];
+
+    IncrementalTrainer::update(&mut model, &mut data, &new_sentences, 1).unwrap();
+
+    // Vocabulary should have grown
+    assert!(data.vocab.len() > original_vocab);
+    // New word should be in vocab
+    assert!(data.vocab.contains_key("newword"));
+    // Existing word should still be there
+    assert!(data.vocab.contains_key("cat"));
+
+    // Model should be able to embed new words
+    assert!(model.get_embedding("newword", &data).is_some());
+}
+
+#[test]
+fn test_incremental_stream_train() {
+    let mut data = TrainingData::from_text("hello world foo bar");
+    let config = TrainingConfig::new(ModelType::SkipGram)
+        .with_dim(4)
+        .with_epochs(1)
+        .with_batch_size(2)
+        .with_window(1)
+        .with_negative_samples(1);
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data).unwrap();
+
+    let stream = vec![
+        vec!["stream".to_string(), "word".to_string()],
+        vec!["another".to_string(), "stream".to_string()],
+    ];
+
+    IncrementalTrainer::stream_train(&mut model, &mut data, stream.into_iter(), 1, 1).unwrap();
+
+    assert!(data.vocab.contains_key("stream"));
+    assert!(data.vocab.contains_key("word"));
+    assert!(data.vocab.contains_key("another"));
+}
+
+#[test]
+fn test_multimodal_fusion_all_methods() {
+    let fusion = MultimodalFusion::new(4, 4, 4);
+    let text = ndarray::Array1::from_vec(vec![1.0, 0.0, 0.0, 0.0]);
+    let aux = ndarray::Array1::from_vec(vec![0.0, 1.0, 0.0, 0.0]);
+
+    // Concatenation
+    let concat = fusion.concatenate(&text, &aux);
+    assert_eq!(concat.len(), 8);
+    assert_eq!(concat[0], 1.0);
+    assert_eq!(concat[4], 0.0);
+
+    // Weighted average
+    let avg = fusion.weighted_average(&text, &aux, 0.7).unwrap();
+    assert_eq!(avg.len(), 4);
+    assert!((avg[0] - 0.7).abs() < 1e-6);
+    assert!((avg[1] - 0.3).abs() < 1e-6);
+
+    // Mismatched dims should return None
+    let short = ndarray::Array1::from_vec(vec![1.0, 2.0]);
+    assert!(fusion.weighted_average(&text, &short, 0.5).is_none());
+
+    // Attention fusion
+    let attn = fusion.attention_fusion(&text, &aux).unwrap();
+    assert_eq!(attn.len(), 4);
+
+    // Cross-modal similarity - orthogonal vectors should be ~0
+    let sim = MultimodalFusion::cross_modal_similarity(&text, &aux);
+    assert!(sim.abs() < 1e-5, "Orthogonal vectors should have ~0 similarity, got {}", sim);
+
+    // Same vector should be ~1
+    let sim_same = MultimodalFusion::cross_modal_similarity(&text, &text);
+    assert!((sim_same - 1.0).abs() < 1e-5, "Same vector should have similarity ~1, got {}", sim_same);
+}
+
+#[test]
+fn test_kmeans_clustering_basic() {
+    let data = make_test_data();
+    let config = test_config(ModelType::SkipGram).with_epochs(3);
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data).unwrap();
+
+    let clusters = search::KMeansClustering::cluster(&model, &data, 3, 20);
+    assert!(!clusters.is_empty());
+    assert!(clusters.len() <= 3);
+
+    // All words should be assigned to exactly one cluster
+    let total_words: usize = clusters.iter().map(|c| c.len()).sum();
+    assert_eq!(total_words, data.vocab.len());
+
+    // Clusters should not overlap
+    let mut seen = std::collections::HashSet::new();
+    for cluster in &clusters {
+        for word in cluster {
+            assert!(seen.insert(word.clone()), "Word {} in multiple clusters", word);
+        }
+    }
+}
+
+#[test]
+fn test_kmeans_hierarchical_comparison() {
+    let data = make_test_data();
+    let config = test_config(ModelType::SkipGram).with_epochs(3);
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data).unwrap();
+
+    // Both clustering methods should produce valid clusters
+    let kmeans = search::KMeansClustering::cluster(&model, &data, 3, 20);
+    let hier = search::HierarchicalClustering::cluster(&model, &data, 3);
+
+    assert!(!kmeans.is_empty());
+    assert!(!hier.is_empty());
+
+    let kmeans_total: usize = kmeans.iter().map(|c| c.len()).sum();
+    let hier_total: usize = hier.iter().map(|c| c.len()).sum();
+    assert_eq!(kmeans_total, data.vocab.len());
+    assert_eq!(hier_total, data.vocab.len());
+}
+
+#[test]
+fn test_cross_validation_skipgram_and_cbow() {
+    let data = make_test_data();
+
+    for model_type in [ModelType::SkipGram, ModelType::Cbow] {
+        let config = test_config(model_type).with_epochs(2);
+        let model = EmbeddingModel::new(config, data.vocab.len());
+
+        let cv = model.cross_validate(&data, 3).unwrap();
+        assert_eq!(cv.folds, 3);
+        assert_eq!(cv.per_fold_metrics.len(), 3);
+
+        // Averaged metrics should be within valid ranges
+        assert!(cv.averaged_metrics.accuracy >= 0.0 && cv.averaged_metrics.accuracy <= 1.0);
+        assert!(cv.averaged_metrics.f1_score >= 0.0 && cv.averaged_metrics.f1_score <= 1.0);
+
+        // Per-fold metrics should also be valid
+        for metrics in &cv.per_fold_metrics {
+            assert!(metrics.accuracy >= 0.0 && metrics.accuracy <= 1.0);
+        }
+    }
+}
+
+#[test]
+fn test_wordpiece_tokenizer_roundtrip() {
+    let corpus = vec![
+        "hello".to_string(),
+        "world".to_string(),
+        "hello".to_string(),
+        "world".to_string(),
+        "helloworld".to_string(),
+    ];
+    let tokenizer = WordPieceTokenizer::train(&corpus, 50);
+    assert!(tokenizer.vocab_size > 0);
+
+    let encoded = tokenizer.encode("hello world");
+    assert!(!encoded.is_empty());
+
+    let decoded = tokenizer.decode(&encoded);
+    // Decoding may produce "hello world" or a close approximation
+    assert!(!decoded.is_empty());
+
+    // Single word
+    let single = tokenizer.encode("hello");
+    assert!(!single.is_empty());
+    let single_decoded = tokenizer.decode(&single);
+    assert_eq!(single_decoded, "hello");
+}
+
+#[test]
+fn test_cpu_backend_operations() {
+    let backend = CpuBackend::new();
+    assert_eq!(backend.name(), "cpu");
+
+    let emb = backend.init_embeddings(10, 8);
+    assert_eq!(emb.nrows(), 10);
+    assert_eq!(emb.ncols(), 8);
+
+    let a = ndarray::Array1::from_vec(vec![1.0, 2.0, 3.0]);
+    let b = ndarray::Array1::from_vec(vec![4.0, 5.0, 6.0]);
+    let dot = backend.dot(&a, &b);
+    assert!((dot - 32.0).abs() < 1e-5, "Expected 32.0, got {}", dot);
+
+    let mut c = a.clone();
+    backend.add_scaled(&mut c, &b, 2.0);
+    assert_eq!(c.to_vec(), vec![9.0, 12.0, 15.0]);
 }

@@ -1,72 +1,91 @@
 use embedding::*;
 
 fn main() -> Result<(), String> {
-    // Sample training data (or load from file)
-    let text = if let Ok(data) = std::fs::read_to_string("examples/data.txt") {
-        data
+    // Load training data in one step
+    let data = if let Ok(text) = std::fs::read_to_string("examples/data.txt") {
+        TrainingData::from_text(&text)
     } else {
-        "the quick brown fox jumps over the lazy dog. the fox is quick and the dog is lazy.".to_string()
+        TrainingData::from_text(
+            "the quick brown fox jumps over the lazy dog. \
+             the fox is quick and the dog is lazy. \
+             cats chase mice and dogs chase cats."
+        )
     };
 
-    // Load and prepare data
-    let sentences = load_text_data(&text);
-    println!("Loaded {} sentences", sentences.len());
-    
-    let (vocab, reverse_vocab) = build_vocab(&sentences);
-    println!("Built vocabulary with {} words", vocab.len());
-    
-    // Show some vocabulary
+    println!("Loaded {} sentences, {} vocabulary words", data.sentences.len(), data.vocab.len());
+
+    // Show sample vocabulary
     println!("Sample vocabulary:");
-    for (i, word) in reverse_vocab.iter().enumerate().take(10) {
+    for (i, word) in data.reverse_vocab.iter().enumerate().take(10) {
         println!("  {}: {}", i, word);
     }
-    
-    let training_data = TrainingData {
-        sentences,
-        vocab,
-        reverse_vocab,
-    };
-    
-    // Create training configuration
-    let config = TrainingConfig {
-        embedding_dim: 10,  // Small dimension for demo
-        learning_rate: 0.1, // Higher learning rate for demo
-        epochs: 5,
-        batch_size: 32,
-        context_window: 2,
-        negative_samples: 5,
-        model_type: ModelType::SkipGram,
-        lr_schedule: LearningRateSchedule::Constant,
-        early_stopping: None,
-        l2_regularization: None,
-        gradient_clip: None,
-        validation_ratio: None,
-    };
-    
-    println!("Training with config: {:?}", config);
-    
-    // Initialize and train model
-    let mut model = EmbeddingModel::new(config, training_data.vocab.len());
-    
-    // Train the model
-    model.train(&training_data)?;
-    
-    // Test similarity calculation
-    if let Some(similarity) = model.similarity("fox", "dog", &training_data) {
-        println!("Similarity between 'fox' and 'dog': {:.4}", similarity);
-    } else {
-        println!("Could not calculate similarity (words not in vocabulary)");
+
+    // Configure training with fluent builder pattern
+    let config = TrainingConfig::new(ModelType::SkipGram)
+        .with_dim(10)
+        .with_learning_rate(0.1)
+        .with_epochs(5)
+        .with_batch_size(32)
+        .with_window(2)
+        .with_negative_samples(5);
+
+    println!("Training Skip-gram model...");
+
+    // Train model
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data)?;
+
+    // Show training history (learning curve)
+    println!("\nTraining History:");
+    for epoch in &model.training_history.epochs {
+        println!("  Epoch {}: loss={:.4}, lr={:.6}", epoch.epoch, epoch.loss, epoch.learning_rate);
     }
-    
-    if let Some(similarity) = model.similarity("quick", "fox", &training_data) {
-        println!("Similarity between 'quick' and 'fox': {:.4}", similarity);
-    } else {
-        println!("Could not calculate similarity (words not in vocabulary)");
+
+    // Word similarity
+    println!("\nWord Similarities:");
+    if let Some(sim) = model.similarity("fox", "dog", &data) {
+        println!("  fox <-> dog:     {:.4}", sim);
     }
-    
+    if let Some(sim) = model.similarity("quick", "fox", &data) {
+        println!("  quick <-> fox:   {:.4}", sim);
+    }
+    if let Some(sim) = model.similarity("cat", "dog", &data) {
+        println!("  cat <-> dog:     {:.4}", sim);
+    }
+
+    // Word analogy
+    println!("\nAnalogy: cat is to dog as mouse is to ?");
+    for (word, score) in model.analogy("cat", "dog", "mouse", &data, 3) {
+        println!("  {} ({:.4})", word, score);
+    }
+
+    // Semantic search
+    println!("\nSemantic search for 'cat':");
+    for (word, score) in model.semantic_search("cat", &data, 5) {
+        println!("  {} ({:.4})", word, score);
+    }
+
+    // Cross-validation
+    println!("\n5-fold Cross-Validation:");
+    let cv = model.cross_validate(&data, 5)?;
+    println!("  Averaged Accuracy:  {:.4}", cv.averaged_metrics.accuracy);
+    println!("  Averaged F1:        {:.4}", cv.averaged_metrics.f1_score);
+
+    // K-means clustering
+    println!("\nK-means Clustering (k=3):");
+    let clusters = search::KMeansClustering::cluster(&model, &data, 3, 20);
+    for (i, cluster) in clusters.iter().enumerate() {
+        println!("  Cluster {}: {:?}", i, cluster);
+    }
+
     // Save embeddings
-    model.save_embeddings("demo_embeddings.txt", &training_data)?;
-    println!("Embeddings saved to demo_embeddings.txt");
-    
+    model.save_embeddings("demo_embeddings.txt", &data)?;
+    println!("\nEmbeddings saved to demo_embeddings.txt");
+
+    // Export training history as JSON
+    let history_json = model.training_history.to_json()?;
+    std::fs::write("demo_history.json", history_json).map_err(|e| e.to_string())?;
+    println!("Training history saved to demo_history.json");
+
     Ok(())
 }

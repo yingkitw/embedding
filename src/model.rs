@@ -3,7 +3,7 @@ use rand::Rng;
 use rand::prelude::SliceRandom;
 use serde::{Deserialize, Serialize};
 use crate::config::{TrainingConfig, TrainingData, ModelType};
-use crate::evaluation::{EvaluationMetrics, ValidationData};
+use crate::evaluation::{CrossValidationResult, EvaluationMetrics, TrainingHistory, ValidationData};
 
 /// Word embedding model with trained vector representations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,6 +12,8 @@ pub struct EmbeddingModel {
     pub embeddings: Array2<f32>,
     pub config: TrainingConfig,
     pub vocab_size: usize,
+    #[serde(skip)]
+    pub training_history: TrainingHistory,
 }
 
 mod embeddings_serializer {
@@ -62,6 +64,7 @@ impl EmbeddingModel {
             embeddings,
             config,
             vocab_size,
+            training_history: TrainingHistory::new(),
         }
     }
 
@@ -106,6 +109,7 @@ impl EmbeddingModel {
             embeddings,
             config,
             vocab_size,
+            training_history: TrainingHistory::new(),
         })
     }
 
@@ -120,7 +124,11 @@ impl EmbeddingModel {
     /// Returns the embedding vector for a given word.
     pub fn get_embedding(&self, word: &str, data: &TrainingData) -> Option<Array1<f32>> {
         if let Some(&word_id) = data.vocab.get(word) {
-            Some(self.embeddings.row(word_id).to_owned())
+            if word_id < self.embeddings.nrows() {
+                Some(self.embeddings.row(word_id).to_owned())
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -239,26 +247,27 @@ impl EmbeddingModel {
         }
     }
     
-    fn calculate_embedding_quality(&self, data: &TrainingData) -> f32 {
+    fn calculate_embedding_quality(&self, _data: &TrainingData) -> f32 {
         let mut total_norm = 0.0;
         let mut count = 0;
         let mut total_variance = 0.0;
-        
-        for (word_id, _) in data.reverse_vocab.iter().enumerate() {
+        let vocab_size = self.embeddings.nrows();
+
+        for word_id in 0..vocab_size {
             let embedding = self.embeddings.row(word_id);
             let norm = embedding.iter().map(|&x| x * x).sum::<f32>().sqrt();
             total_norm += norm;
             count += 1;
-            
+
             // Calculate variance within embedding dimensions
             let mean_val = embedding.sum() / self.config.embedding_dim as f32;
             let variance = embedding.iter().map(|&x| (x - mean_val).powi(2)).sum::<f32>() / self.config.embedding_dim as f32;
             total_variance += variance;
         }
-        
+
         let avg_norm = if count > 0 { total_norm / count as f32 } else { 0.0 };
         let avg_variance = if count > 0 { total_variance / count as f32 } else { 0.0 };
-        
+
         // Quality score based on norm and variance (higher is better)
         let quality = (avg_norm * avg_variance).sqrt();
         quality.min(1.0)  // Normalize to 0-1
@@ -440,5 +449,94 @@ impl EmbeddingModel {
             return None;
         }
         Some(&sum / (count as f32))
+    }
+
+    /// Performs k-fold cross-validation on the given data.
+    ///
+    /// Splits sentences into `k` folds, trains a fresh model on k-1 folds,
+    /// and evaluates on the held-out fold. Returns averaged metrics and
+    /// per-fold results.
+    pub fn cross_validate(
+        &self,
+        data: &TrainingData,
+        k: usize,
+    ) -> Result<CrossValidationResult, String> {
+        if k < 2 || k > data.sentences.len() {
+            return Err("k must be between 2 and the number of sentences".to_string());
+        }
+
+        let mut shuffled_indices: Vec<usize> = (0..data.sentences.len()).collect();
+        let mut rng = rand::thread_rng();
+        shuffled_indices.shuffle(&mut rng);
+
+        let fold_size = data.sentences.len() / k;
+        let mut per_fold_metrics = Vec::with_capacity(k);
+
+        for fold in 0..k {
+            let start = fold * fold_size;
+            let end = if fold == k - 1 {
+                data.sentences.len()
+            } else {
+                start + fold_size
+            };
+
+            let val_indices: std::collections::HashSet<usize> =
+                shuffled_indices[start..end].iter().copied().collect();
+
+            let train_sentences: Vec<Vec<String>> = shuffled_indices
+                .iter()
+                .filter(|&&i| !val_indices.contains(&i))
+                .map(|&i| data.sentences[i].clone())
+                .collect();
+
+            let val_sentences: Vec<Vec<String>> = shuffled_indices[start..end]
+                .iter()
+                .map(|&i| data.sentences[i].clone())
+                .collect();
+
+            // Build training vocabulary from train sentences
+            let (train_vocab, train_reverse) = crate::text::build_vocab(&train_sentences);
+            let train_data = TrainingData {
+                sentences: train_sentences,
+                vocab: train_vocab,
+                reverse_vocab: train_reverse,
+            };
+
+            // Train a fresh model
+            let mut fold_model = EmbeddingModel::new(self.config.clone(), train_data.vocab.len());
+            fold_model.train(&train_data)?;
+
+            // Build validation data using the training vocab only
+            // Words not in training vocab will be treated as OOV
+            let val_data = TrainingData {
+                sentences: val_sentences,
+                vocab: train_data.vocab.clone(),
+                reverse_vocab: train_data.reverse_vocab.clone(),
+            };
+
+            let validation_pairs = fold_model.create_validation_data(&val_data.sentences);
+            let metrics = fold_model.evaluate(&val_data, &validation_pairs);
+            per_fold_metrics.push(metrics);
+        }
+
+        let n = per_fold_metrics.len() as f32;
+        let avg = EvaluationMetrics {
+            accuracy: per_fold_metrics.iter().map(|m| m.accuracy).sum::<f32>() / n,
+            precision: per_fold_metrics.iter().map(|m| m.precision).sum::<f32>() / n,
+            recall: per_fold_metrics.iter().map(|m| m.recall).sum::<f32>() / n,
+            f1_score: per_fold_metrics.iter().map(|m| m.f1_score).sum::<f32>() / n,
+            mean_similarity: per_fold_metrics.iter().map(|m| m.mean_similarity).sum::<f32>() / n,
+            embedding_quality_score: per_fold_metrics
+                .iter()
+                .map(|m| m.embedding_quality_score)
+                .sum::<f32>()
+                / n,
+        };
+
+        Ok(CrossValidationResult {
+            folds: k,
+            averaged_metrics: avg,
+            per_fold_metrics,
+        })
     }
 }

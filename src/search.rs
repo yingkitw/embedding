@@ -90,6 +90,92 @@ impl HierarchicalClustering {
     }
 }
 
+/// K-means clustering for word embeddings.
+pub struct KMeansClustering;
+
+impl KMeansClustering {
+    /// Clusters vocabulary words into `k` groups using k-means on embedding vectors.
+    ///
+    /// Returns a vector of clusters, where each cluster is a list of words.
+    pub fn cluster(
+        model: &EmbeddingModel,
+        data: &TrainingData,
+        k: usize,
+        max_iterations: usize,
+    ) -> Vec<Vec<String>> {
+        let n = data.reverse_vocab.len();
+        if n == 0 {
+            return Vec::new();
+        }
+        let k = k.min(n);
+        let dim = model.config.embedding_dim;
+
+        // Randomly pick k centroids from existing embeddings
+        let mut rng = rand::thread_rng();
+        let mut centroids: Vec<Vec<f32>> = Vec::with_capacity(k);
+        let mut chosen = std::collections::HashSet::new();
+        while centroids.len() < k {
+            let idx = rng.gen_range(0..n);
+            if chosen.insert(idx) {
+                let row = model.embeddings.row(idx);
+                centroids.push(row.iter().copied().collect());
+            }
+        }
+
+        let mut assignments: Vec<usize> = vec![0; n];
+
+        for _ in 0..max_iterations {
+            // Assign each point to nearest centroid
+            let mut changed = false;
+            for (i, assignment) in assignments.iter_mut().enumerate() {
+                let emb = model.embeddings.row(i);
+                let mut best_dist = f32::INFINITY;
+                let mut best_c = 0;
+                for (c_idx, centroid) in centroids.iter().enumerate() {
+                    let dist: f32 = emb.iter().zip(centroid.iter()).map(|(&a, &b)| (a - b).powi(2)).sum();
+                    if dist < best_dist {
+                        best_dist = dist;
+                        best_c = c_idx;
+                    }
+                }
+                if *assignment != best_c {
+                    *assignment = best_c;
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+
+            // Recompute centroids
+            for (c_idx, centroid) in centroids.iter_mut().enumerate() {
+                let mut sum = vec![0.0f32; dim];
+                let mut count = 0usize;
+                for (i, &assign) in assignments.iter().enumerate() {
+                    if assign == c_idx {
+                        let emb = model.embeddings.row(i);
+                        for j in 0..dim {
+                            sum[j] += emb[j];
+                        }
+                        count += 1;
+                    }
+                }
+                if count > 0 {
+                    for j in 0..dim {
+                        centroid[j] = sum[j] / count as f32;
+                    }
+                }
+            }
+        }
+
+        let mut clusters: Vec<Vec<String>> = vec![Vec::new(); k];
+        for (i, &assign) in assignments.iter().enumerate() {
+            clusters[assign].push(data.reverse_vocab[i].clone());
+        }
+        clusters.into_iter().filter(|c| !c.is_empty()).collect()
+    }
+}
+
 /// Locality-Sensitive Hashing index for approximate nearest neighbor search.
 pub struct LSHIndex {
     pub hash_tables: Vec<std::collections::HashMap<usize, Vec<usize>>>,
