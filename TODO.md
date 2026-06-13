@@ -195,22 +195,26 @@
 ## Future Enhancements 🚀
 
 ### 13. Training Improvements
-- [ ] **Negative sampling distribution**
-  - Current: uniform random over vocabulary
-  - Target: unigram distribution raised to 3/4 power (Mikolov et al.)
-  - Benefits: rare words sampled more frequently, better representation
-- [ ] **Sub-sampling of frequent words**
-  - Word2Vec-style `P(w) = 1 - sqrt(t / f(w))` for words above threshold
-  - Benefits: faster training, better representation of rare words
-- [ ] **Learning rate warm-up**
-  - Linear warm-up for first N steps/batches before main schedule
-  - Benefits: stabler early training, especially with large batch sizes
-- [ ] **Model checkpointing**
-  - Save intermediate checkpoints every N epochs with best-validation tracking
-  - Resume training from checkpoint
-- [ ] **Multi-threaded / parallel training**
-  - Parallelize sentence processing over CPU cores (thread-local negative sampling)
-  - Async gradient updates with Hogwild-style locking
+- [x] **Negative sampling distribution**
+  - [x] Unigram distribution raised to 3/4 power (Mikolov et al.)
+  - [x] Enabled by default (`use_unigram_negative_sampling: true`)
+  - [x] Falls back to uniform random if word frequencies unavailable
+- [x] **Sub-sampling of frequent words**
+  - [x] Word2Vec-style `P(w) = 1 - sqrt(t / f(w))` for words above threshold
+  - [x] Configurable via `subsample_threshold` (opt-in, typical: `1e-5`)
+  - [x] Benefits: faster training, better representation of rare words
+- [x] **Learning rate warm-up**
+  - [x] Linear warm-up for first N epochs before main schedule
+  - [x] Configurable via `warmup_epochs` (opt-in, `None` disables)
+  - [x] Benefits: stabler early training, especially with large batch sizes
+- [x] **Model checkpointing**
+  - [x] Save intermediate checkpoints every N epochs (`checkpoint_interval`)
+  - [x] Resume training from checkpoint (`load_checkpoint`)
+  - [x] Configurable output directory (`checkpoint_path`)
+- [x] **Multi-threaded / parallel training**
+  - [x] Parallelize sentence processing over CPU cores via `rayon`
+  - [x] Thread-local gradient accumulators merged at epoch end
+  - [x] Opt-in via `use_parallel` flag
 
 ### 14. Inference & Deployment
 - [ ] **INT8 / FP16 quantization**
@@ -278,7 +282,7 @@
 ## Completion Criteria ✅
 
 - [x] Core training algorithm produces meaningful embeddings
-- [x] All tests passing (114 tests: 78 unit + 31 integration + 5 doc-tests, 0 failures)
+- [x] All tests passing (126 tests: 86 unit + 35 integration + 5 doc-tests, 0 failures)
 - [x] Performance benchmarks meet or exceed Word2Vec/GloVe
   - [x] Criterion benchmarks for all core operations
   - [x] Python comparison script against gensim Word2Vec
@@ -291,6 +295,6 @@
 
 ---
 
-**Last Updated**: 2026-06-13 (v0.1.4 published)  
+**Last Updated**: 2026-06-13 (v0.1.5 published)  
 **Priority Level**: Core features complete; v2.0 research features in progress  
 **Estimated Completion**: Core features complete; enhancements in Future Enhancements section

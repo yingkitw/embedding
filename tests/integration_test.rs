@@ -3,8 +3,8 @@ use embedding::*;
 fn make_test_data() -> TrainingData {
     let text = "the cat sat on the mat. the dog sat on the log. the cat chased the dog.";
     let sentences = load_text_data(text);
-    let (vocab, reverse_vocab) = build_vocab(&sentences);
-    TrainingData { sentences, vocab, reverse_vocab }
+    let (vocab, reverse_vocab, word_freq) = build_vocab_with_freq(&sentences);
+    TrainingData { sentences, vocab, reverse_vocab, word_freq }
 }
 
 fn test_config(model_type: ModelType) -> TrainingConfig {
@@ -207,6 +207,7 @@ fn test_train_with_validation_ratio_config() {
         sentences: val,
         vocab: data.vocab.clone(),
         reverse_vocab: data.reverse_vocab.clone(),
+        word_freq: data.word_freq.clone(),
     };
     let validation_pairs = model.create_validation_data(&val_data.sentences);
     let metrics = model.evaluate(&val_data, &validation_pairs);
@@ -308,8 +309,8 @@ mod property_tests {
         fn prop_similarity_range(word1 in "[a-z]{3,8}", word2 in "[a-z]{3,8}") {
             let text = format!("{} {} other words here.", word1, word2);
             let sentences = load_text_data(&text);
-            let (vocab, reverse_vocab) = build_vocab(&sentences);
-            let data = TrainingData { sentences, vocab, reverse_vocab };
+            let (vocab, reverse_vocab, word_freq) = build_vocab_with_freq(&sentences);
+            let data = TrainingData { sentences, vocab, reverse_vocab, word_freq };
             let config = test_config(ModelType::SkipGram).with_epochs(2);
             let mut model = EmbeddingModel::new(config, data.vocab.len());
             model.train(&data).unwrap();
@@ -323,8 +324,8 @@ mod property_tests {
         fn prop_normalize_produces_unit_norm(word in "[a-z]{3,8}") {
             let text = format!("{} other words here for context.", word);
             let sentences = load_text_data(&text);
-            let (vocab, reverse_vocab) = build_vocab(&sentences);
-            let data = TrainingData { sentences, vocab, reverse_vocab };
+            let (vocab, reverse_vocab, word_freq) = build_vocab_with_freq(&sentences);
+            let data = TrainingData { sentences, vocab, reverse_vocab, word_freq };
             let config = test_config(ModelType::SkipGram).with_epochs(2);
             let mut model = EmbeddingModel::new(config, data.vocab.len());
             model.train(&data).unwrap();
@@ -759,4 +760,80 @@ fn test_pretrained_loader_from_mmap_binary() {
     assert_eq!(emb.get("cat").unwrap(), expected.as_slice());
 
     std::fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_checkpoint_roundtrip_preserves_embeddings() {
+    let data = make_test_data();
+    let config = test_config(ModelType::SkipGram).with_epochs(2);
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data).unwrap();
+
+    let path = std::env::temp_dir().join("integration_checkpoint.json");
+    let path_str = path.to_str().unwrap();
+
+    model.save_checkpoint(path_str, 2, 0.5).unwrap();
+    let loaded = EmbeddingModel::load_checkpoint(path_str).unwrap();
+
+    assert_eq!(loaded.vocab_size, model.vocab_size);
+    assert_eq!(loaded.embeddings.shape(), model.embeddings.shape());
+    // Spot-check a few embedding values
+    for word in &["cat", "dog", "the"] {
+        if let (Some(a), Some(b)) = (
+            model.get_embedding(word, &data),
+            loaded.get_embedding(word, &data),
+        ) {
+            for (x, y) in a.iter().zip(b.iter()) {
+                assert!((x - y).abs() < 1e-6, "Checkpoint should preserve embeddings exactly");
+            }
+        }
+    }
+
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
+fn test_parallel_training_produces_valid_embeddings() {
+    let data = make_test_data();
+    let config = test_config(ModelType::SkipGram)
+        .with_parallel(true)
+        .with_epochs(3);
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data).unwrap();
+
+    assert!(model.get_embedding("cat", &data).is_some());
+    assert!(model.get_embedding("dog", &data).is_some());
+
+    let sim = model.similarity("cat", "dog", &data);
+    assert!(sim.is_some(), "Parallel training should produce valid similarities");
+}
+
+#[test]
+fn test_parallel_cbow_produces_valid_embeddings() {
+    let data = make_test_data();
+    let config = test_config(ModelType::Cbow)
+        .with_parallel(true)
+        .with_epochs(3);
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data).unwrap();
+
+    assert!(model.get_embedding("cat", &data).is_some());
+    assert!(model.get_embedding("dog", &data).is_some());
+}
+
+#[test]
+fn test_all_enhancements_together() {
+    let data = make_test_data();
+    let config = test_config(ModelType::SkipGram)
+        .with_unigram_negative_sampling(true)
+        .with_subsample_threshold(Some(1e-5))
+        .with_warmup_epochs(Some(1))
+        .with_checkpoint_interval(Some(1))
+        .with_parallel(true)
+        .with_epochs(2);
+
+    let mut model = EmbeddingModel::new(config, data.vocab.len());
+    model.train(&data).unwrap();
+
+    assert!(model.get_embedding("cat", &data).is_some());
 }

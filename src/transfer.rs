@@ -150,6 +150,7 @@ impl DomainAdapter {
             sentences: domain_sentences.to_vec(),
             vocab: data.vocab.clone(),
             reverse_vocab: data.reverse_vocab.clone(),
+            word_freq: data.word_freq.clone(),
         };
         // Incremental vocab update for any new domain words
         let domain_words: Vec<String> = domain_sentences

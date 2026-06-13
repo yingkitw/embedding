@@ -20,7 +20,7 @@ pub fn build_vocab(sentences: &[Vec<String>]) -> (HashMap<String, usize>, Vec<St
     let mut vocab = HashMap::new();
     let mut reverse_vocab = Vec::new();
     let mut vocab_counter = 0;
-    
+
     for sentence in sentences {
         for word in sentence {
             if !vocab.contains_key(word) {
@@ -30,8 +30,31 @@ pub fn build_vocab(sentences: &[Vec<String>]) -> (HashMap<String, usize>, Vec<St
             }
         }
     }
-    
+
     (vocab, reverse_vocab)
+}
+
+/// Builds a vocabulary map, reverse lookup, and per-ID word frequencies from tokenized sentences.
+pub fn build_vocab_with_freq(sentences: &[Vec<String>]) -> (HashMap<String, usize>, Vec<String>, Vec<usize>) {
+    let mut vocab = HashMap::new();
+    let mut reverse_vocab = Vec::new();
+    let mut word_freq = Vec::new();
+    let mut vocab_counter = 0;
+
+    for sentence in sentences {
+        for word in sentence {
+            if let Some(&id) = vocab.get(word) {
+                word_freq[id] += 1;
+            } else {
+                vocab.insert(word.clone(), vocab_counter);
+                reverse_vocab.push(word.clone());
+                word_freq.push(1);
+                vocab_counter += 1;
+            }
+        }
+    }
+
+    (vocab, reverse_vocab, word_freq)
 }
 
 /// Configurable text preprocessing pipeline.

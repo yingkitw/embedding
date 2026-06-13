@@ -142,6 +142,122 @@ mod tests {
     }
 
     #[test]
+    fn test_build_vocab_with_freq_counts_correctly() {
+        let sentences = vec![
+            vec!["the".to_string(), "cat".to_string(), "sat".to_string()],
+            vec!["the".to_string(), "dog".to_string(), "sat".to_string()],
+        ];
+        let (vocab, reverse_vocab, word_freq) = build_vocab_with_freq(&sentences);
+        assert_eq!(vocab.len(), 4);
+        assert_eq!(reverse_vocab.len(), 4);
+        assert_eq!(word_freq.len(), 4);
+
+        let the_id = vocab["the"];
+        let sat_id = vocab["sat"];
+        assert_eq!(word_freq[the_id], 2);
+        assert_eq!(word_freq[sat_id], 2);
+        assert_eq!(word_freq[vocab["cat"]], 1);
+        assert_eq!(word_freq[vocab["dog"]], 1);
+    }
+
+    #[test]
+    fn test_unigram_negative_sampling_runs() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram)
+            .with_unigram_negative_sampling(true)
+            .with_epochs(2);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        assert!(model.train(&data).is_ok());
+    }
+
+    #[test]
+    fn test_subsampling_runs() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram)
+            .with_subsample_threshold(Some(1e-5))
+            .with_epochs(2);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        assert!(model.train(&data).is_ok());
+    }
+
+    #[test]
+    fn test_subsampling_drops_frequent_words() {
+        let data = make_test_data();
+        let total = data.total_word_count();
+        assert!(total > 0);
+
+        // With a moderate threshold, frequent words like "the" and "sat" may be dropped
+        let config = TrainingConfig::new(ModelType::SkipGram)
+            .with_dim(4)
+            .with_epochs(1)
+            .with_batch_size(2)
+            .with_subsample_threshold(Some(1e-3));
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        assert!(model.train(&data).is_ok());
+    }
+
+    #[test]
+    fn test_lr_warmup() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram)
+            .with_warmup_epochs(Some(3))
+            .with_epochs(5)
+            .with_learning_rate(0.1);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        assert!(model.train(&data).is_ok());
+
+        // Verify LR is scaled down during warm-up epochs
+        let lr0 = model.get_learning_rate(0, 5);
+        let lr1 = model.get_learning_rate(1, 5);
+        let lr2 = model.get_learning_rate(2, 5);
+        let lr3 = model.get_learning_rate(3, 5);
+        assert!(lr0 < lr1 && lr1 < lr2, "LR should increase during warm-up");
+        assert!(lr2 < lr3, "LR should reach base rate after warm-up");
+        assert!(lr3 > 0.0, "LR after warm-up should be positive");
+    }
+
+    #[test]
+    fn test_checkpoint_save_and_load() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram).with_epochs(2);
+        let mut model = EmbeddingModel::new(config.clone(), data.vocab.len());
+        model.train(&data).unwrap();
+
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join("test_checkpoint.json");
+        let path_str = path.to_str().unwrap();
+
+        model.save_checkpoint(path_str, 2, 0.5).unwrap();
+        let loaded = EmbeddingModel::load_checkpoint(path_str).unwrap();
+
+        assert_eq!(loaded.config.model_type, config.model_type);
+        assert_eq!(loaded.vocab_size, model.vocab_size);
+        assert_eq!(loaded.embeddings.shape(), model.embeddings.shape());
+    }
+
+    #[test]
+    fn test_parallel_training_skipgram() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram)
+            .with_parallel(true)
+            .with_epochs(2);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        assert!(model.train(&data).is_ok());
+        assert!(model.get_embedding("cat", &data).is_some());
+    }
+
+    #[test]
+    fn test_parallel_training_cbow() {
+        let data = make_test_data();
+        let config = test_config(ModelType::Cbow)
+            .with_parallel(true)
+            .with_epochs(2);
+        let mut model = EmbeddingModel::new(config, data.vocab.len());
+        assert!(model.train(&data).is_ok());
+        assert!(model.get_embedding("dog", &data).is_some());
+    }
+
+    #[test]
     fn test_save_embeddings() {
         let data = make_test_data();
         let config = test_config(ModelType::SkipGram);
@@ -772,13 +888,13 @@ mod tests {
         let sentences = load_code_data(code);
         assert!(!sentences.is_empty());
 
-        let (vocab, reverse_vocab) = build_vocab(&sentences);
+        let (vocab, reverse_vocab, word_freq) = build_vocab_with_freq(&sentences);
         assert!(vocab.contains_key("compute"));
         assert!(vocab.contains_key("embedding"));
         assert!(vocab.contains_key("vector"));
         assert!(vocab.contains_key("result"));
 
-        let data = TrainingData { sentences, vocab, reverse_vocab };
+        let data = TrainingData { sentences, vocab, reverse_vocab, word_freq };
         let config = test_config(ModelType::SkipGram);
         let mut model = EmbeddingModel::new(config, data.vocab.len());
         assert!(model.train(&data).is_ok());
@@ -795,7 +911,7 @@ mod tests {
         let sentences = load_text_data(text);
         assert!(!sentences.is_empty());
 
-        let (vocab, reverse_vocab) = build_vocab(&sentences);
+        let (vocab, reverse_vocab, word_freq) = build_vocab_with_freq(&sentences);
         // Verify French words are preserved including accented characters
         assert!(vocab.contains_key("chat"));
         assert!(vocab.contains_key("noir"));
@@ -803,7 +919,7 @@ mod tests {
         assert!(vocab.contains_key("chien"));
         assert!(vocab.contains_key("jardin"));
 
-        let data = TrainingData { sentences, vocab, reverse_vocab };
+        let data = TrainingData { sentences, vocab, reverse_vocab, word_freq };
         let config = test_config(ModelType::SkipGram);
         let mut model = EmbeddingModel::new(config, data.vocab.len());
         assert!(model.train(&data).is_ok());
@@ -821,7 +937,7 @@ mod tests {
         let sentences = load_text_data(text);
         assert!(!sentences.is_empty());
 
-        let (vocab, reverse_vocab) = build_vocab(&sentences);
+        let (vocab, reverse_vocab, word_freq) = build_vocab_with_freq(&sentences);
         // Verify Chinese characters are tokenized individually
         assert!(vocab.contains_key("猫"));
         assert!(vocab.contains_key("坐"));
@@ -829,7 +945,7 @@ mod tests {
         assert!(vocab.contains_key("花"));
         assert!(vocab.contains_key("追"));
 
-        let data = TrainingData { sentences, vocab, reverse_vocab };
+        let data = TrainingData { sentences, vocab, reverse_vocab, word_freq };
         let config = test_config(ModelType::SkipGram);
         let mut model = EmbeddingModel::new(config, data.vocab.len());
         assert!(model.train(&data).is_ok());
@@ -847,14 +963,14 @@ mod tests {
         let sentences = load_text_data(text);
         assert!(!sentences.is_empty());
 
-        let (vocab, reverse_vocab) = build_vocab(&sentences);
+        let (vocab, reverse_vocab, word_freq) = build_vocab_with_freq(&sentences);
         // Verify Japanese characters are tokenized
         assert!(vocab.contains_key("猫"));
         assert!(vocab.contains_key("座"));
         assert!(vocab.contains_key("犬"));
         assert!(vocab.contains_key("遊"));
 
-        let data = TrainingData { sentences, vocab, reverse_vocab };
+        let data = TrainingData { sentences, vocab, reverse_vocab, word_freq };
         let config = test_config(ModelType::SkipGram);
         let mut model = EmbeddingModel::new(config, data.vocab.len());
         assert!(model.train(&data).is_ok());

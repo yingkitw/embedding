@@ -33,6 +33,20 @@ pub struct TrainingConfig {
     pub l2_regularization: Option<f64>,
     pub gradient_clip: Option<f32>,
     pub validation_ratio: Option<f64>,
+    /// Sub-sampling threshold for frequent words (Mikolov et al.).
+    /// `None` disables sub-sampling. Typical value: `1e-5`.
+    pub subsample_threshold: Option<f64>,
+    /// If `true`, sample negative examples using the unigram distribution
+    /// raised to the 3/4 power instead of uniform random.
+    pub use_unigram_negative_sampling: bool,
+    /// Number of epochs for linear LR warm-up. `None` disables warm-up.
+    pub warmup_epochs: Option<usize>,
+    /// Save a checkpoint every N epochs. `None` disables checkpointing.
+    pub checkpoint_interval: Option<usize>,
+    /// Directory to write checkpoint files. Defaults to current directory.
+    pub checkpoint_path: Option<String>,
+    /// If `true`, process sentences in parallel during training.
+    pub use_parallel: bool,
 }
 
 impl TrainingConfig {
@@ -57,6 +71,12 @@ impl TrainingConfig {
             l2_regularization: None,
             gradient_clip: None,
             validation_ratio: None,
+            subsample_threshold: None,
+            use_unigram_negative_sampling: true,
+            warmup_epochs: None,
+            checkpoint_interval: None,
+            checkpoint_path: None,
+            use_parallel: false,
         }
     }
 
@@ -125,6 +145,42 @@ impl TrainingConfig {
         self.validation_ratio = Some(ratio);
         self
     }
+
+    /// Fluent setter for sub-sampling threshold (`None` disables sub-sampling).
+    pub fn with_subsample_threshold(mut self, threshold: Option<f64>) -> Self {
+        self.subsample_threshold = threshold;
+        self
+    }
+
+    /// Fluent setter for unigram negative sampling.
+    pub fn with_unigram_negative_sampling(mut self, enabled: bool) -> Self {
+        self.use_unigram_negative_sampling = enabled;
+        self
+    }
+
+    /// Fluent setter for LR warm-up epochs (`None` disables warm-up).
+    pub fn with_warmup_epochs(mut self, epochs: Option<usize>) -> Self {
+        self.warmup_epochs = epochs;
+        self
+    }
+
+    /// Fluent setter for checkpoint interval (`None` disables checkpointing).
+    pub fn with_checkpoint_interval(mut self, interval: Option<usize>) -> Self {
+        self.checkpoint_interval = interval;
+        self
+    }
+
+    /// Fluent setter for checkpoint directory.
+    pub fn with_checkpoint_path(mut self, path: Option<String>) -> Self {
+        self.checkpoint_path = path;
+        self
+    }
+
+    /// Fluent setter for parallel training.
+    pub fn with_parallel(mut self, enabled: bool) -> Self {
+        self.use_parallel = enabled;
+        self
+    }
 }
 
 /// Learning rate schedule variants.
@@ -144,7 +200,7 @@ pub struct EarlyStoppingConfig {
 }
 
 /// Supported embedding model architectures.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ModelType {
     SkipGram,
     Cbow,
@@ -156,6 +212,8 @@ pub struct TrainingData {
     pub sentences: Vec<Vec<String>>,
     pub vocab: HashMap<String, usize>,
     pub reverse_vocab: Vec<String>,
+    /// Per-vocab-ID word frequencies used for negative-sampling and sub-sampling.
+    pub word_freq: Vec<usize>,
 }
 
 impl TrainingData {
@@ -168,8 +226,8 @@ impl TrainingData {
     /// ```
     pub fn from_text(text: &str) -> Self {
         let sentences = load_text_data(text);
-        let (vocab, reverse_vocab) = crate::text::build_vocab(&sentences);
-        Self { sentences, vocab, reverse_vocab }
+        let (vocab, reverse_vocab, word_freq) = crate::text::build_vocab_with_freq(&sentences);
+        Self { sentences, vocab, reverse_vocab, word_freq }
     }
 
     /// Creates [`TrainingData`] from a file by reading, tokenizing, and building the vocabulary.
@@ -179,8 +237,13 @@ impl TrainingData {
     pub fn from_file(path: &str) -> Result<Self, String> {
         let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         let sentences = load_text_data(&content);
-        let (vocab, reverse_vocab) = crate::text::build_vocab(&sentences);
-        Ok(Self { sentences, vocab, reverse_vocab })
+        let (vocab, reverse_vocab, word_freq) = crate::text::build_vocab_with_freq(&sentences);
+        Ok(Self { sentences, vocab, reverse_vocab, word_freq })
+    }
+
+    /// Total number of word occurrences across all sentences.
+    pub fn total_word_count(&self) -> usize {
+        self.word_freq.iter().sum()
     }
 }
 

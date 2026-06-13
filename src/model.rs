@@ -493,11 +493,12 @@ impl EmbeddingModel {
                 .collect();
 
             // Build training vocabulary from train sentences
-            let (train_vocab, train_reverse) = crate::text::build_vocab(&train_sentences);
+            let (train_vocab, train_reverse, train_freq) = crate::text::build_vocab_with_freq(&train_sentences);
             let train_data = TrainingData {
                 sentences: train_sentences,
                 vocab: train_vocab,
                 reverse_vocab: train_reverse,
+                word_freq: train_freq,
             };
 
             // Train a fresh model
@@ -510,6 +511,7 @@ impl EmbeddingModel {
                 sentences: val_sentences,
                 vocab: train_data.vocab.clone(),
                 reverse_vocab: train_data.reverse_vocab.clone(),
+                word_freq: train_data.word_freq.clone(),
             };
 
             let validation_pairs = fold_model.create_validation_data(&val_data.sentences);

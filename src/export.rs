@@ -206,4 +206,34 @@ impl EmbeddingModel {
     pub fn load_mmap(path: &str) -> Result<mmap::MmapEmbeddings, String> {
         mmap::MmapEmbeddings::open(path)
     }
+
+    /// Saves a training checkpoint (model + metadata) to a JSON file.
+    pub fn save_checkpoint(&self, path: &str, epoch: usize, best_loss: f32) -> Result<(), String> {
+        let checkpoint = Checkpoint {
+            model: self.clone(),
+            epoch,
+            best_loss,
+        };
+        let json = serde_json::to_string_pretty(&checkpoint).map_err(|e| e.to_string())?;
+        let mut file = File::create(path).map_err(|e| e.to_string())?;
+        file.write_all(json.as_bytes()).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Loads a model from a checkpoint file.
+    pub fn load_checkpoint(path: &str) -> Result<EmbeddingModel, String> {
+        let content = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let checkpoint: Checkpoint = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+        Ok(checkpoint.model)
+    }
+}
+
+use serde::{Deserialize, Serialize};
+
+/// Serializable training checkpoint containing the full model state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Checkpoint {
+    model: EmbeddingModel,
+    epoch: usize,
+    best_loss: f32,
 }

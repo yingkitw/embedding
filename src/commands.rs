@@ -41,7 +41,7 @@ pub fn handle_train(
     };
     info!("Loaded {} sentences", sentences.len());
 
-    let (vocab, reverse_vocab) = build_vocab(&sentences);
+    let (vocab, reverse_vocab, word_freq) = build_vocab_with_freq(&sentences);
     info!("Built vocabulary with {} words", vocab.len());
 
     let model_type = match model_type.as_str() {
@@ -93,6 +93,7 @@ pub fn handle_train(
         sentences: train_sentences,
         vocab: vocab.clone(),
         reverse_vocab: reverse_vocab.clone(),
+        word_freq: word_freq.clone(),
     };
 
     let mut model = EmbeddingModel::new(config.clone(), vocab.len());
@@ -119,6 +120,7 @@ pub fn handle_train(
         sentences,
         vocab,
         reverse_vocab,
+        word_freq,
     };
 
     let model_data = serde_json::to_string(&(&model, &full_training_data))
@@ -143,6 +145,7 @@ pub fn handle_train(
             sentences: val_sentences,
             vocab: full_training_data.vocab.clone(),
             reverse_vocab: full_training_data.reverse_vocab.clone(),
+            word_freq: full_training_data.word_freq.clone(),
         };
         let validation_pairs = model.create_validation_data(&val_data.sentences);
         let metrics = model.evaluate(&val_data, &validation_pairs);
@@ -353,7 +356,8 @@ pub fn handle_validate(
     let val_data = TrainingData {
         sentences,
         vocab: val_vocab,
-        reverse_vocab: val_reverse,
+        reverse_vocab: val_reverse.clone(),
+        word_freq: vec![0usize; val_reverse.len()],
     };
 
     let validation_pairs = model.create_validation_data(&val_data.sentences);
@@ -400,8 +404,8 @@ pub fn handle_interactive(
         });
 
     let sentences = load_text_data(&text);
-    let (vocab, reverse_vocab) = build_vocab(&sentences);
-    let training_data = TrainingData { sentences, vocab, reverse_vocab };
+    let (vocab, reverse_vocab, word_freq) = build_vocab_with_freq(&sentences);
+    let training_data = TrainingData { sentences, vocab, reverse_vocab, word_freq };
 
     let model_type = match model_type_str.as_str() {
         "skipgram" => ModelType::SkipGram,

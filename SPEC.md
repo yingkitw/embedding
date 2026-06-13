@@ -37,6 +37,30 @@ This document specifies the requirements, architecture, and implementation detai
   - Configurable embedding dimensions
   - Batch processing support
 
+- **FR-002a**: Negative sampling distribution
+  - Unigram distribution raised to 3/4 power (Mikolov et al.)
+  - Configurable via `use_unigram_negative_sampling` flag
+  - Falls back to uniform random when disabled or frequencies unavailable
+
+- **FR-002b**: Sub-sampling of frequent words
+  - Word2Vec-style `P(drop) = 1 - sqrt(t / f(w))` for words above threshold
+  - Configurable via `subsample_threshold` (opt-in, typical: `1e-5`)
+  - Applied to both target and context words during training
+
+- **FR-002c**: Learning rate warm-up
+  - Linear warm-up for first N epochs before main schedule
+  - Configurable via `warmup_epochs` (opt-in, `None` disables)
+
+- **FR-002d**: Model checkpointing
+  - Save intermediate checkpoints every N epochs (`checkpoint_interval`)
+  - Resume training from checkpoint (`load_checkpoint`)
+  - Configurable output directory (`checkpoint_path`)
+
+- **FR-002e**: Parallel training
+  - Multi-threaded sentence processing via `rayon`
+  - Thread-local gradient accumulators merged at epoch end
+  - Opt-in via `use_parallel` flag
+
 #### 2.1.2. Data Processing
 - **FR-004**: Text preprocessing
   - Lowercase conversion
@@ -46,6 +70,7 @@ This document specifies the requirements, architecture, and implementation detai
 
 - **FR-005**: Vocabulary management
   - Build vocabulary from text data
+  - Build vocabulary with word frequency tracking (`build_vocab_with_freq`)
   - Word-to-index mapping
   - Vocabulary size limits
   - Out-of-vocabulary handling
@@ -244,6 +269,12 @@ pub struct TrainingConfig {
     pub l2_regularization: Option<f64>, // L2 regularization coefficient
     pub gradient_clip: Option<f32>,   // Maximum gradient norm
     pub validation_ratio: Option<f64>, // Fraction of data for validation
+    pub subsample_threshold: Option<f64>, // Sub-sampling threshold (Mikolov et al.)
+    pub use_unigram_negative_sampling: bool, // Unigram^0.75 vs uniform random
+    pub warmup_epochs: Option<usize>, // Linear LR warm-up epochs
+    pub checkpoint_interval: Option<usize>, // Save checkpoint every N epochs
+    pub checkpoint_path: Option<String>, // Checkpoint output directory
+    pub use_parallel: bool,           // Parallel training via rayon
 }
 ```
 
@@ -253,6 +284,7 @@ pub struct TrainingData {
     pub sentences: Vec<Vec<String>>,   // Tokenized sentences
     pub vocab: HashMap<String, usize>, // Word to index mapping
     pub reverse_vocab: Vec<String>,  // Index to word mapping
+    pub word_freq: Vec<usize>,       // Per-word occurrence counts
 }
 ```
 
@@ -493,7 +525,7 @@ pub enum TrainingError {
 
 ---
 
-**Specification Version**: 1.1  
-**Last Updated**: 2026-06-10  
+**Specification Version**: 1.2  
+**Last Updated**: 2026-06-13  
 **Review Date**: Quarterly  
 **Approvals**: Technical Lead, Project Manager

@@ -17,7 +17,11 @@ A fast and flexible Rust library and CLI tool for training word embeddings from 
 - Configurable embedding dimensions
 - Adjustable learning rates and epochs
 - Customizable context windows
-- Negative sampling support
+- Negative sampling support (uniform or unigram^0.75 distribution)
+- Sub-sampling of frequent words (Mikolov-style)
+- Learning rate warm-up for stabler early training
+- Model checkpointing (save/resume every N epochs)
+- Multi-threaded parallel training over CPU cores
 - Batch processing capabilities
 - Learning rate scheduling (constant, exponential, step, cosine)
 - Early stopping with configurable patience
@@ -206,7 +210,13 @@ fn advanced_example() -> Result<(), String> {
         .with_batch_size(128)
         .with_window(10)
         .with_negative_samples(10)
-        .with_validation_ratio(0.2);
+        .with_validation_ratio(0.2)
+        .with_subsample_threshold(Some(1e-5))
+        .with_unigram_negative_sampling(true)
+        .with_warmup_epochs(Some(3))
+        .with_checkpoint_interval(Some(10))
+        .with_checkpoint_path(Some("./checkpoints".to_string()))
+        .with_parallel(true);
 
     // Train model
     let mut model = EmbeddingModel::new(config, data.vocab.len());
@@ -482,6 +492,13 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 - ✅ Enhanced multi-modal fusion (attention fusion, projection fusion, cross-modal similarity)
 - ✅ Real-time incremental training (`IncrementalTrainer` with batch and stream modes)
 
+### Version 2.1 (Current — Training Improvements Complete)
+- ✅ Unigram^0.75 negative sampling distribution (Mikolov et al.)
+- ✅ Sub-sampling of frequent words (`P(w) = 1 - sqrt(t / f(w))`)
+- ✅ Learning rate warm-up (linear for first N epochs)
+- ✅ Model checkpointing (save/resume every N epochs)
+- ✅ Multi-threaded parallel training via `rayon`
+
 ## � Comparison with Alternatives
 
 | Feature | **embedding** (this crate) | Gensim (Python) | rust-bert | fastText |
@@ -493,6 +510,9 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 | **GPU acceleration** | ✅ (wgpu compute shaders, optional) | ❌ | ✅ (via ONNX / tch) | ✅ |
 | **Cross-validation** | ✅ (k-fold) | ❌ | ❌ | ❌ |
 | **Learning curves** | ✅ (per-epoch JSON export) | ❌ | ❌ | ❌ |
+| **LR warm-up** | ✅ (linear epochs) | ❌ | ❌ | ❌ |
+| **Checkpointing** | ✅ (save/resume) | ❌ | ❌ | ❌ |
+| **Parallel training** | ✅ (rayon, multi-core) | ❌ | ❌ | ❌ |
 | **Benchmark evaluation** | ✅ (Spearman correlation) | ✅ (similarity tasks) | ❌ | ✅ |
 | **K-means clustering** | ✅ | ❌ | ❌ | ❌ |
 | **Incremental training** | ✅ (stream / batch updates) | ❌ (requires retrain) | ❌ | ❌ |
