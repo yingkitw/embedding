@@ -34,12 +34,12 @@ A fast and flexible Rust library and CLI tool for training word embeddings from 
 - **Training**: Train embeddings from text data with optional validation split
 - **Similarity**: Calculate semantic similarity between words
 - **Inspection**: Analyze trained models and vocabulary
-- **Export**: Save embeddings in multiple formats (text, JSON, binary, Word2Vec)
+- **Export**: Save embeddings in multiple formats (text, JSON, binary, Word2Vec, INT8/FP16 ONNX)
 - **Validate**: Evaluate a saved model on held-out validation text
 - **Interactive**: Query trained models interactively (similarity, analogy, search)
 
 ### � **Evaluation & Analysis**
-- **Benchmarks**: Evaluate against standard word similarity benchmarks (WordSim-353, SimLex-999) with Spearman correlation
+- **Benchmarks**: Evaluate against built-in word similarity benchmarks (WordSim-353, SimLex-999, MEN, RW, SCWS) with Spearman correlation
 - **Clustering**: K-means and hierarchical clustering of embeddings
 - **Cross-validation**: K-fold cross-validation with per-fold metrics
 - **Learning curves**: Per-epoch loss and learning rate tracking with JSON export
@@ -260,6 +260,8 @@ fn advanced_example() -> Result<(), String> {
 - **`json`**: JSON format with metadata
 - **`bin`**: Binary format using bincode
 - **`word2vec`**: Word2Vec/Gensim text format
+- **`onnx-int8`**: Quantized ONNX with INT8 weights (~4x smaller)
+- **`onnx-fp16`**: Quantized ONNX with FP16 weights (~2x smaller)
 
 ## 📖 CLI Reference
 
@@ -310,7 +312,7 @@ embedding export [OPTIONS]
 **Options:**
 - `--model <FILE>` - Model file (required)
 - `--output <FILE>` - Output file (required)
-- `--format <FORMAT>` - Export format (text|json|bin|word2vec)
+- `--format <FORMAT>` - Export format (text|json|bin|word2vec|onnx-int8|onnx-fp16)
 
 ### Validate Command
 

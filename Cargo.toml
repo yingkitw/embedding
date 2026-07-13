@@ -1,6 +1,6 @@
 [package]
 name = "embedding"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 description = "A Rust library and CLI for training embeddings from scratch"
 authors = ["Ying Kit WONG"]
@@ -39,6 +39,7 @@ bytes = "1.10"
 unicode-normalization = "0.1"
 memmap2 = "0.9"
 rayon = "1.10"
+half = "2.4"
 wgpu = { version = "0.20", optional = true }
 pollster = { version = "0.3", optional = true }
 bytemuck = { version = "1.14", optional = true }

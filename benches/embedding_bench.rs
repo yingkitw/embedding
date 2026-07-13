@@ -339,6 +339,56 @@ fn bench_sentence_embedding(c: &mut Criterion) {
     });
 }
 
+fn bench_hnsw_query(c: &mut Criterion) {
+    let sentences = vec![
+        vec!["the".to_string(), "quick".to_string(), "brown".to_string(), "fox".to_string()],
+        vec!["jumps".to_string(), "over".to_string(), "the".to_string(), "lazy".to_string()],
+        vec!["dog".to_string(), "and".to_string(), "cat".to_string()],
+        vec!["machine".to_string(), "learning".to_string(), "is".to_string(), "fun".to_string()],
+    ];
+
+    let (vocab, reverse_vocab) = build_vocab(&sentences);
+    let training_data = TrainingData {
+        sentences,
+        vocab,
+        reverse_vocab,
+        word_freq: vec![],
+    };
+
+    let config = TrainingConfig {
+        embedding_dim: 100,
+        learning_rate: 0.025,
+        epochs: 10,
+        batch_size: 32,
+        context_window: 2,
+        negative_samples: 5,
+        model_type: ModelType::SkipGram,
+        lr_schedule: LearningRateSchedule::Constant,
+        early_stopping: None,
+        l2_regularization: None,
+        gradient_clip: None,
+        validation_ratio: None,
+        subsample_threshold: None,
+        use_unigram_negative_sampling: true,
+        warmup_epochs: None,
+        checkpoint_interval: None,
+        checkpoint_path: None,
+        use_parallel: false,
+    };
+
+    let mut model = EmbeddingModel::new(config, training_data.vocab.len());
+    model.train(&training_data).unwrap();
+
+    let mut hnsw = HNSWIndex::with_defaults();
+    hnsw.build(&model, &training_data);
+
+    c.bench_function("hnsw_query", |b| {
+        b.iter(|| {
+            black_box(hnsw.query("fox", &model, &training_data, 5));
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_skipgram_training,
@@ -349,6 +399,7 @@ criterion_group!(
     bench_semantic_search,
     bench_analogy,
     bench_lsh_query,
+    bench_hnsw_query,
     bench_sentence_embedding
 );
 criterion_main!(benches);

@@ -9,9 +9,9 @@
 //! - Text preprocessing (HTML stripping, URL removal, contraction expansion)
 //! - Source code preprocessing (comment stripping, camelCase splitting)
 //! - BPE subword tokenization
-//! - Export to Word2Vec, NumPy, ONNX, and binary formats
+//! - Export to Word2Vec, NumPy, ONNX (including INT8/FP16 quantization), and binary formats
 //! - Semantic search, analogy solving, and embedding arithmetic
-//! - Incremental vocabulary updates and LSH-based approximate nearest neighbors
+//! - Incremental vocabulary updates and approximate nearest neighbors (HNSW, LSH)
 //!
 //! # Example
 //!
@@ -55,6 +55,8 @@ pub mod mmap;
 pub mod pretrained;
 mod training;
 mod export;
+pub mod quantization;
+pub mod hnsw;
 pub mod cli;
 mod commands;
 pub use model::*;
@@ -63,6 +65,8 @@ pub use benchmark::*;
 pub use transformer::*;
 pub use mmap::MmapEmbeddings;
 pub use pretrained::{PretrainedEmbeddings, PretrainedLoader};
+pub use quantization::{QuantizationMode, QuantizedEmbeddings};
+pub use hnsw::HNSWIndex;
 pub use training::IncrementalTrainer;
 
 #[cfg(test)]
@@ -647,6 +651,22 @@ mod tests {
         assert!(model.get_embedding("giraffe", &data).is_some());
         // Existing words should still work
         assert!(model.get_embedding("cat", &data).is_some());
+    }
+
+    #[test]
+    fn test_hnsw_index() {
+        let data = make_test_data();
+        let config = test_config(ModelType::SkipGram);
+        let mut model = EmbeddingModel::new(config.clone(), data.vocab.len());
+        model.train(&data).unwrap();
+
+        let mut hnsw = HNSWIndex::with_defaults();
+        hnsw.build(&model, &data);
+
+        let results = hnsw.query("cat", &model, &data, 5);
+        for (word, _) in &results {
+            assert_ne!(word, "cat");
+        }
     }
 
     #[test]

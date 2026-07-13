@@ -217,16 +217,17 @@
   - [x] Opt-in via `use_parallel` flag
 
 ### 14. Inference & Deployment
-- [ ] **INT8 / FP16 quantization**
-  - Post-training quantization for smaller model sizes (4x smaller for INT8)
+- [x] **INT8 / FP16 quantization**
+  - [x] Post-training quantization for smaller model sizes (4x smaller for INT8, 2x for FP16)
   - Quantization-aware training option
-  - Export quantized ONNX
-- [ ] **HNSW approximate nearest neighbor index**
-  - Replace LSH with Hierarchical Navigable Small World graphs
-  - Benefits: significantly higher recall at same latency, supports billion-scale
-- [ ] **Built-in benchmark datasets**
-  - Ship WordSim-353, SimLex-999, MEN, RW, SCWS as embedded TSVs
-  - `BenchmarkEvaluator::load_builtin("wordsim353")` convenience API
+  - [x] Export quantized ONNX (`onnx-int8`, `onnx-fp16` CLI formats)
+- [x] **HNSW approximate nearest neighbor index**
+  - [x] Hierarchical Navigable Small World graph index (`HNSWIndex`) alongside LSH
+  - [x] Higher recall than LSH on word similarity queries (tested vs exact search)
+  - [x] Configurable `m`, `ef_construction`, and `ef_search` parameters
+- [x] **Built-in benchmark datasets**
+  - [x] Ship WordSim-353, SimLex-999, MEN, RW, SCWS as embedded TSVs
+  - [x] `BenchmarkEvaluator::load_builtin("wordsim353")` convenience API
 - [ ] **OOV (Out-of-Vocabulary) fallback**
   - Subword composition: average of character n-gram embeddings for unknown words
   - FastText-style character n-gram bucket embeddings
@@ -282,7 +283,7 @@
 ## Completion Criteria ✅
 
 - [x] Core training algorithm produces meaningful embeddings
-- [x] All tests passing (126 tests: 86 unit + 35 integration + 5 doc-tests, 0 failures)
+- [x] All tests passing (142 tests: 102 unit + 35 integration + 5 doc-tests, 0 failures)
 - [x] Performance benchmarks meet or exceed Word2Vec/GloVe
   - [x] Criterion benchmarks for all core operations
   - [x] Python comparison script against gensim Word2Vec
@@ -295,6 +296,6 @@
 
 ---
 
-**Last Updated**: 2026-06-13 (v0.1.5 published)  
+**Last Updated**: 2026-07-07 (v0.1.5, INT8/FP16 quantization added)  
 **Priority Level**: Core features complete; v2.0 research features in progress  
 **Estimated Completion**: Core features complete; enhancements in Future Enhancements section

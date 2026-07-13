@@ -116,7 +116,7 @@ pub enum Commands {
         #[arg(short, long)]
         output: String,
 
-        /// Export format: text, json, bin, or word2vec
+        /// Export format: text, json, bin, word2vec, onnx-int8, or onnx-fp16
         #[arg(short, long, default_value = "text")]
         format: String,
     },

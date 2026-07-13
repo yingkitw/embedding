@@ -14,7 +14,10 @@ The codebase is organized into domain modules under `src/`:
 | `code` | `src/code.rs` | Source code preprocessing (`CodeProcessor`), comment stripping, camelCase splitting, code tokenization (`load_code_data`) |
 | `text` | `src/text.rs` | Text processing pipeline (`TextProcessor`), vocabulary building (`build_vocab`, `build_vocab_with_freq`), text loading |
 | `tokenizer` | `src/tokenizer.rs` | Byte Pair Encoding tokenizer (`BPETokenizer`) |
-| `search` | `src/search.rs` | Approximate nearest-neighbor search (`LSHIndex`), query expansion (`QueryExpander`), hierarchical clustering (`HierarchicalClustering`) |
+| `search` | `src/search.rs` | Approximate nearest-neighbor search (`LSHIndex`), query expansion (`QueryExpander`), hierarchical clustering (`HierarchicalClustering`), k-means clustering |
+| `hnsw` | `src/hnsw.rs` | HNSW graph index (`HNSWIndex`) for higher-recall approximate nearest neighbors |
+| `benchmark` | `src/benchmark.rs` | Word similarity benchmark evaluation (`BenchmarkEvaluator`) with built-in WordSim-353, SimLex-999, MEN, RW, SCWS datasets |
+| `quantization` | `src/quantization.rs` | Post-training INT8/FP16 quantization and quantized ONNX export |
 | `evaluation` | `src/evaluation.rs` | Evaluation metrics (`EvaluationMetrics`, `ValidationData`, `TrainingHistory`, `CrossValidationResult`) |
 | `transfer` | `src/transfer.rs` | Transfer learning: `MultimodalFusion`, `CrossLingualAligner`, `DomainAdapter`, `DocumentEmbedder`, `SubwordEmbedder`, `ZeroShotTransfer`, `IncrementalTrainer` |
 | `mmap` | `src/mmap.rs` | Memory-mapped embedding storage (`MmapEmbeddings`) for read-only access to large binary files |
@@ -27,7 +30,7 @@ The codebase is organized into domain modules under `src/`:
 All public types are re-exported from `src/lib.rs` via `pub use <module>::*`, so consumers can import everything directly from the crate root:
 
 ```rust
-use embedding::{EmbeddingModel, TrainingConfig, TextProcessor, LSHIndex};
+use embedding::{EmbeddingModel, TrainingConfig, TextProcessor, HNSWIndex, BenchmarkEvaluator};
 ```
 
 ## Key Design Decisions

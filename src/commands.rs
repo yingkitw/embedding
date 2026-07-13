@@ -306,8 +306,33 @@ pub fn handle_export(model_path: String, output: String, format: String) {
             }
             info!("Embeddings exported to Word2Vec format: {}", output);
         }
+        "onnx-int8" => {
+            if let Err(e) = model.save_quantized_onnx_format(
+                &output,
+                &training_data,
+                QuantizationMode::Int8,
+            ) {
+                error!("Failed to export quantized ONNX: {}", e);
+                std::process::exit(1);
+            }
+            info!("Embeddings exported to INT8 ONNX format: {}", output);
+        }
+        "onnx-fp16" => {
+            if let Err(e) = model.save_quantized_onnx_format(
+                &output,
+                &training_data,
+                QuantizationMode::Fp16,
+            ) {
+                error!("Failed to export quantized ONNX: {}", e);
+                std::process::exit(1);
+            }
+            info!("Embeddings exported to FP16 ONNX format: {}", output);
+        }
         _ => {
-            error!("Unknown export format: {}. Use text, json, bin, or word2vec", format);
+            error!(
+                "Unknown export format: {}. Use text, json, bin, word2vec, onnx-int8, or onnx-fp16",
+                format
+            );
             std::process::exit(1);
         }
     }
